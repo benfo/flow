@@ -153,7 +153,7 @@ func (m Model) renderListView() string {
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
 		hints = append(hints, "n  new")
 	}
-	hints = append(hints, "q  quit")
+	hints = append(hints, "?  help", "q  quit")
 	footer := renderFooterBar(fitHints(hints, "   ", m.width-2), m.width)
 
 	var content string

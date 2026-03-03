@@ -390,7 +390,7 @@ func (m Model) renderDetailView() string {
 	if m.selectedTask != nil && m.selectedTask.ParentID != "" {
 		hints = append(hints, "p  parent")
 	}
-	hints = append(hints, "q  quit")
+	hints = append(hints, "?  help", "q  quit")
 
 	var footerText string
 	if m.confirmingDelete && m.selectedTask != nil {

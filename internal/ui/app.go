@@ -150,6 +150,9 @@ type Model struct {
 	commentsModel    TaskCommentsModel
 	confirmingDelete bool // true while waiting for delete confirmation in detail view
 
+	showHelp     bool           // true when the help overlay is visible
+	helpViewport viewport.Model // scrollable content for the help overlay
+
 	activeBranch            string // currently checked-out git branch name
 	activeTaskID            string // task ID extracted from activeBranch
 	confirmingCheckout      bool   // true when offering to checkout an existing branch
@@ -294,6 +297,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Toggle help overlay from non-input views.
+	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "?" {
+		switch m.state {
+		case viewList, viewDetail, viewStatus:
+			return m.openHelpView()
+		case viewComments:
+			if m.commentsModel.mode == commentModeList || m.commentsModel.mode == commentModeDelete {
+				return m.openHelpView()
+			}
+		}
+	}
+
+	// Route all messages to the help overlay when it is visible.
+	if m.showHelp {
+		return m.updateHelpView(msg)
+	}
+
 	// Keep the spinner ticking while loading.
 	if m.state == viewLoading {
 		var cmd tea.Cmd
@@ -336,6 +356,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	if m.width == 0 {
 		return ""
+	}
+
+	if m.showHelp {
+		return m.renderHelpView()
 	}
 
 	switch m.state {
