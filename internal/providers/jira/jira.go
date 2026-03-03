@@ -77,6 +77,71 @@ func (p *Provider) Update(task tasks.Task) error {
 }
 
 
+// GetSubtasks satisfies tasks.SubtaskFetcher. It fetches children of the given
+// issue key using JQL parent = KEY.
+func (p *Provider) GetSubtasks(parentID string) ([]tasks.Task, error) {
+	jql := fmt.Sprintf("parent = %s ORDER BY created ASC", parentID)
+	resp, err := p.client.search(jql, 50)
+	if err != nil {
+		return nil, fmt.Errorf("jira subtasks: %w", err)
+	}
+	return mapIssues(resp.Issues, p.cfg.BaseURL), nil
+}
+
+// Create satisfies tasks.Creator. It creates a new issue (or subtask when
+// input.ParentID is non-empty) via POST /rest/api/3/issue and returns the
+// canonical Task populated from the resulting issue key.
+func (p *Provider) Create(input tasks.CreateInput) (tasks.Task, error) {
+	if input.Title == "" {
+		return tasks.Task{}, fmt.Errorf("title is required")
+	}
+
+	projectKey := p.projectKeyFor(input)
+	if projectKey == "" {
+		return tasks.Task{}, fmt.Errorf("no project configured — run 'flow setup jira' to set a default project")
+	}
+
+	fields := map[string]interface{}{
+		"summary":     input.Title,
+		"description": plainTextToADF(input.Description),
+		"project":     map[string]string{"key": projectKey},
+	}
+
+	if input.ParentID != "" {
+		fields["issuetype"] = map[string]string{"name": "Subtask"}
+		fields["parent"] = map[string]string{"key": input.ParentID}
+	} else {
+		fields["issuetype"] = map[string]string{"name": "Task"}
+	}
+
+	createResp, err := p.client.createIssue(fields)
+	if err != nil {
+		return tasks.Task{}, err
+	}
+
+	// Fetch the full issue to return a complete Task.
+	iss, err := p.client.getIssue(createResp.Key)
+	if err != nil {
+		return tasks.Task{}, err
+	}
+	return mapIssue(*iss, p.cfg.BaseURL), nil
+}
+
+// projectKeyFor resolves the Jira project key for a new issue.
+// For subtasks the project is derived from the parent key; for top-level tasks
+// it falls back to the first configured project.
+func (p *Provider) projectKeyFor(input tasks.CreateInput) string {
+	if input.ParentID != "" {
+		if parts := strings.SplitN(input.ParentID, "-", 2); len(parts) == 2 {
+			return parts[0]
+		}
+	}
+	if len(p.cfg.Projects) > 0 {
+		return p.cfg.Projects[0]
+	}
+	return ""
+}
+
 func (p *Provider) buildJQL() string {
 	base := "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
 	if len(p.cfg.Projects) == 0 {
@@ -137,7 +202,67 @@ func (c *client) put(path string, body interface{}) (*http.Response, error) {
 	return c.http.Do(req)
 }
 
-// updateIssue writes a new summary and description to the given issue key.
+func (c *client) post(path string, body interface{}) (*http.Response, error) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+path, strings.NewReader(string(data)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", c.auth)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	return c.http.Do(req)
+}
+
+type createIssueResponse struct {
+	Key string `json:"key"`
+}
+
+// createIssue POSTs to /rest/api/3/issue and returns the key of the new issue.
+func (c *client) createIssue(fields map[string]interface{}) (*createIssueResponse, error) {
+	resp, err := c.post("/rest/api/3/issue", map[string]interface{}{"fields": fields})
+	if err != nil {
+		return nil, fmt.Errorf("jira create issue: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("jira create issue returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+
+	var cr createIssueResponse
+	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
+		return nil, fmt.Errorf("decoding create response: %w", err)
+	}
+	return &cr, nil
+}
+
+// getIssue fetches a single issue by key and returns the raw issue struct.
+func (c *client) getIssue(key string) (*issue, error) {
+	path := fmt.Sprintf("/rest/api/3/issue/%s?fields=summary,description,status,priority,assignee,labels,project,parent,subtasks", key)
+	resp, err := c.get(path)
+	if err != nil {
+		return nil, fmt.Errorf("jira get issue %s: %w", key, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("jira get issue %s returned HTTP %d: %s", key, resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+
+	var iss issue
+	if err := json.NewDecoder(resp.Body).Decode(&iss); err != nil {
+		return nil, fmt.Errorf("decoding issue response: %w", err)
+	}
+	return &iss, nil
+}
+
+
 func (c *client) updateIssue(key, summary, description string) error {
 	body := map[string]interface{}{
 		"fields": map[string]interface{}{
@@ -233,13 +358,24 @@ type issue struct {
 }
 
 type issueFields struct {
-	Summary     string          `json:"summary"`
-	Description *adfNode        `json:"description"`
-	Status      issueStatus     `json:"status"`
-	Priority    *issuePriority  `json:"priority"`
-	Assignee    *issueUser      `json:"assignee"`
-	Labels      []string        `json:"labels"`
-	Project     issueProject    `json:"project"`
+	Summary     string         `json:"summary"`
+	Description *adfNode       `json:"description"`
+	Status      issueStatus    `json:"status"`
+	Priority    *issuePriority `json:"priority"`
+	Assignee    *issueUser     `json:"assignee"`
+	Labels      []string       `json:"labels"`
+	Project     issueProject   `json:"project"`
+	Parent      *issueParent   `json:"parent"`
+	Subtasks    []issueRef     `json:"subtasks"`
+}
+
+type issueParent struct {
+	Key string `json:"key"`
+}
+
+// issueRef is a lightweight reference used for the subtasks array.
+type issueRef struct {
+	Key string `json:"key"`
 }
 
 type issueStatus struct {
@@ -265,7 +401,7 @@ type issueProject struct {
 
 func (c *client) search(jql string, maxResults int) (*searchResponse, error) {
 	path := fmt.Sprintf(
-		"/rest/api/3/search/jql?jql=%s&maxResults=%d&fields=summary,description,status,priority,assignee,labels,project",
+		"/rest/api/3/search/jql?jql=%s&maxResults=%d&fields=summary,description,status,priority,assignee,labels,project,parent,subtasks",
 		url.QueryEscape(jql),
 		maxResults,
 	)
@@ -306,6 +442,11 @@ func mapIssue(iss issue, baseURL string) tasks.Task {
 		assignee = f.Assignee.DisplayName
 	}
 
+	parentID := ""
+	if f.Parent != nil {
+		parentID = f.Parent.Key
+	}
+
 	return tasks.Task{
 		ID:          iss.Key,
 		Title:       f.Summary,
@@ -316,6 +457,8 @@ func mapIssue(iss issue, baseURL string) tasks.Task {
 		Assignee:    assignee,
 		Labels:      f.Labels,
 		Project:     f.Project.Name,
+		ParentID:    parentID,
+		HasChildren: len(f.Subtasks) > 0,
 	}
 }
 

@@ -66,6 +66,18 @@ type Task struct {
 	Assignee    string
 	Labels      []string
 	Project     string
+	ParentID    string // empty if top-level task
+	HasChildren bool   // hint: true if this task has subtasks (avoids N+1 on list)
+}
+
+// CreateInput is the provider-agnostic description of a new task or subtask.
+// ParentID is empty for top-level tasks; non-empty signals a subtask request.
+// Providers that do not support subtask linking may silently ignore ParentID.
+type CreateInput struct {
+	Title       string
+	Description string
+	Priority    Priority
+	ParentID    string
 }
 
 // Provider is the abstraction over any task management system.
@@ -84,4 +96,22 @@ type Updater interface {
 	// Update writes a modified task back to the upstream provider.
 	// Only Title and Description are expected to be updated.
 	Update(task Task) error
+}
+
+// Creator is an optional capability a Provider may implement to support
+// creating new tasks and subtasks. Providers that are read-only do not need
+// to implement this interface.
+type Creator interface {
+	// Create sends a new task to the upstream provider and returns the
+	// canonical Task populated with the provider-assigned ID, URL, etc.
+	Create(input CreateInput) (Task, error)
+}
+
+// SubtaskFetcher is an optional capability a Provider may implement to
+// retrieve the children of a task. Used to populate the subtask section in
+// the detail view. Providers without native subtask support do not need to
+// implement this interface.
+type SubtaskFetcher interface {
+	// GetSubtasks returns the immediate children of the given task ID.
+	GetSubtasks(parentID string) ([]Task, error)
 }

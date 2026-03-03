@@ -138,6 +138,9 @@ func (m TaskEditModel) Update(msg tea.Msg) (TaskEditModel, tea.Cmd) {
 // applyWidths sets component widths from m.width/m.height.
 // Content width = terminal width − outer padding (4) − border (2) − inner padding (2).
 func (m *TaskEditModel) applyWidths() {
+	if m.originalTask.ID == "" {
+		return // model not yet initialised; skip to avoid nil-pointer in textarea
+	}
 	contentW := max(20, m.width-8)
 	m.titleInput.Width = contentW
 	m.descInput.SetWidth(contentW)
@@ -187,20 +190,6 @@ func (m TaskEditModel) View() string {
 }
 
 func (m TaskEditModel) renderEditField(label, content string, focused bool) string {
-	borderColor := colorBorder
-	if focused {
-		borderColor = colorPrimary
-	}
-
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Padding(0, 1).
-		Render(content)
-
-	return lipgloss.JoinVertical(lipgloss.Left,
-		editLabelStyle(focused).Padding(1, 2, 0, 2).Render(label),
-		lipgloss.NewStyle().Padding(0, 2).Render(box),
-	)
+	return renderFormField(label, content, focused)
 }
 

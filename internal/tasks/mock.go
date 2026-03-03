@@ -6,12 +6,13 @@ import "fmt"
 // It holds mutable state so edits made via Update() are reflected in subsequent
 // GetTasks() calls within the same session.
 type MockProvider struct {
-	tasks []Task
+	tasks  []Task
+	nextID int // counter for generated IDs
 }
 
 // NewMockProvider creates a MockProvider seeded with realistic sample tasks.
 func NewMockProvider() *MockProvider {
-	return &MockProvider{tasks: seedTasks()}
+	return &MockProvider{tasks: seedTasks(), nextID: 20}
 }
 
 // Name satisfies Provider.
@@ -19,9 +20,13 @@ func (m *MockProvider) Name() string { return "Mock" }
 
 // GetTasks satisfies Provider.
 func (m *MockProvider) GetTasks() ([]Task, error) {
-	// Return a copy so callers cannot mutate internal state directly.
-	out := make([]Task, len(m.tasks))
-	copy(out, m.tasks)
+	// Return only top-level tasks in the list view (subtasks are fetched on demand).
+	var out []Task
+	for _, t := range m.tasks {
+		if t.ParentID == "" {
+			out = append(out, t)
+		}
+	}
 	return out, nil
 }
 
@@ -38,7 +43,56 @@ func (m *MockProvider) Update(task Task) error {
 	return fmt.Errorf("task %s not found", task.ID)
 }
 
-// seedTasks returns the initial set of mock tasks.
+// Create satisfies Creator. It appends a new task to the in-memory slice and
+// returns the created task with a generated ID.
+func (m *MockProvider) Create(input CreateInput) (Task, error) {
+	if input.Title == "" {
+		return Task{}, fmt.Errorf("title is required")
+	}
+
+	id := fmt.Sprintf("MOCK-%03d", m.nextID)
+	m.nextID++
+
+	task := Task{
+		ID:          id,
+		Title:       input.Title,
+		Description: input.Description,
+		Status:      StatusTodo,
+		Priority:    input.Priority,
+		URL:         "https://example.atlassian.net/browse/" + id,
+		Assignee:    "you",
+		Project:     "Flow CLI",
+		ParentID:    input.ParentID,
+	}
+	m.tasks = append(m.tasks, task)
+
+	// Mark parent as having children if a ParentID is set.
+	if input.ParentID != "" {
+		for i, t := range m.tasks {
+			if t.ID == input.ParentID {
+				m.tasks[i].HasChildren = true
+				break
+			}
+		}
+	}
+
+	return task, nil
+}
+
+// GetSubtasks satisfies SubtaskFetcher. It returns all tasks whose ParentID
+// matches the given parent ID.
+func (m *MockProvider) GetSubtasks(parentID string) ([]Task, error) {
+	var out []Task
+	for _, t := range m.tasks {
+		if t.ParentID == parentID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+// seedTasks returns the initial set of mock tasks, including a few subtasks
+// under FLOW-001 to demonstrate the subtask feature in the UI.
 func seedTasks() []Task {
 	return []Task{
 		{
@@ -56,12 +110,47 @@ Acceptance criteria:
   • 'flow auth jira' opens the browser and redirects back to the CLI
   • Credentials are persisted and reused on subsequent runs
   • Expired tokens refresh transparently without user intervention`,
-			Status:   StatusInProgress,
-			Priority: PriorityHigh,
-			URL:      "https://example.atlassian.net/browse/FLOW-001",
-			Assignee: "you",
-			Labels:   []string{"backend", "auth"},
-			Project:  "Flow CLI",
+			Status:      StatusInProgress,
+			Priority:    PriorityHigh,
+			URL:         "https://example.atlassian.net/browse/FLOW-001",
+			Assignee:    "you",
+			Labels:      []string{"backend", "auth"},
+			Project:     "Flow CLI",
+			HasChildren: true,
+		},
+		// Subtasks of FLOW-001
+		{
+			ID:          "FLOW-011",
+			Title:       "Register OAuth app in Atlassian developer console",
+			Description: "Create the OAuth 2.0 application entry in https://developer.atlassian.com and capture the client ID and secret.",
+			Status:      StatusDone,
+			Priority:    PriorityHigh,
+			URL:         "https://example.atlassian.net/browse/FLOW-011",
+			Assignee:    "you",
+			Project:     "Flow CLI",
+			ParentID:    "FLOW-001",
+		},
+		{
+			ID:          "FLOW-012",
+			Title:       "Implement redirect and callback handlers",
+			Description: "Set up a local HTTP server to receive the OAuth callback and exchange the auth code for tokens.",
+			Status:      StatusInProgress,
+			Priority:    PriorityHigh,
+			URL:         "https://example.atlassian.net/browse/FLOW-012",
+			Assignee:    "you",
+			Project:     "Flow CLI",
+			ParentID:    "FLOW-001",
+		},
+		{
+			ID:          "FLOW-013",
+			Title:       "Store and refresh access tokens",
+			Description: "Persist access/refresh tokens in the OS keychain and refresh automatically before expiry.",
+			Status:      StatusTodo,
+			Priority:    PriorityMedium,
+			URL:         "https://example.atlassian.net/browse/FLOW-013",
+			Assignee:    "you",
+			Project:     "Flow CLI",
+			ParentID:    "FLOW-001",
 		},
 		{
 			ID:    "FLOW-002",

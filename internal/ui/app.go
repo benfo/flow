@@ -23,6 +23,7 @@ const (
 	viewDetail  viewState = iota
 	viewBranch  viewState = iota
 	viewEdit    viewState = iota
+	viewCreate  viewState = iota
 	viewError   viewState = iota
 )
 
@@ -42,6 +43,26 @@ type taskSavedMsg struct {
 	err  error
 }
 
+// taskCreatedMsg carries the result of an async task creation.
+type taskCreatedMsg struct {
+	task tasks.Task
+	err  error
+}
+
+// subtasksLoadedMsg carries the result of an async subtask fetch.
+type subtasksLoadedMsg struct {
+	tasks []tasks.Task
+	err   error
+}
+
+// detailFocusArea identifies which region of the detail view has keyboard focus.
+type detailFocusArea int
+
+const (
+	detailFocusViewport  detailFocusArea = iota
+	detailFocusSubtasks  detailFocusArea = iota
+)
+
 // ── Root model ────────────────────────────────────────────────────────────────
 
 // Model is the root Bubble Tea model for the flow dashboard.
@@ -50,14 +71,18 @@ type Model struct {
 	detail        viewport.Model
 	branchInput   textinput.Model
 	editModel     TaskEditModel
+	createModel   TaskCreateModel
 	spinner       spinner.Model
 	cfg           config.Config
 	provider      tasks.Provider
 	state         viewState
 	tasks         []tasks.Task
 	selectedTask  *tasks.Task
-	statusMessage string // transient feedback shown in the footer
-	loadErr       string // shown in viewError
+	subtasks      []tasks.Task    // subtasks for the currently selected task
+	subtaskCursor int             // selected row in the subtask mini-list
+	detailFocus   detailFocusArea // which region of detail view has focus
+	statusMessage string          // transient feedback shown in the footer
+	loadErr       string          // shown in viewError
 	width         int
 	height        int
 }
@@ -122,6 +147,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTaskSaved(saved)
 	}
 
+	// Handle async task creation result.
+	if created, ok := msg.(taskCreatedMsg); ok {
+		return m.handleTaskCreated(created)
+	}
+
+	// Handle async subtask fetch result.
+	if loaded, ok := msg.(subtasksLoadedMsg); ok {
+		return m.handleSubtasksLoaded(loaded)
+	}
+
 	// Keep the spinner ticking while loading.
 	if m.state == viewLoading {
 		var cmd tea.Cmd
@@ -138,6 +173,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateBranchView(msg)
 	case viewEdit:
 		return m.updateEditView(msg)
+	case viewCreate:
+		return m.updateCreateView(msg)
 	case viewError:
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
@@ -187,6 +224,8 @@ func (m Model) View() string {
 		return m.renderBranchView()
 	case viewEdit:
 		return m.renderEditView()
+	case viewCreate:
+		return m.renderCreateView()
 	case viewError:
 		return m.renderErrorView()
 	}
@@ -203,9 +242,21 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	m.list.SetSize(msg.Width, contentHeight)
 
 	if m.state == viewDetail {
+		subtaskSectionH := 0
+		if len(m.subtasks) > 0 {
+			subtaskSectionH = subtaskSectionHeight(len(m.subtasks))
+		}
 		m.detail.Width = msg.Width
-		m.detail.Height = contentHeight
+		m.detail.Height = max(3, contentHeight-subtaskSectionH)
 	}
+
+	m.editModel.width = msg.Width
+	m.editModel.height = msg.Height
+	m.editModel.applyWidths()
+
+	m.createModel.width = msg.Width
+	m.createModel.height = msg.Height
+	m.createModel.applyWidths()
 
 	return m
 }
@@ -220,6 +271,8 @@ func (m Model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "enter":
 				return m.openDetail()
+			case "n":
+				return m.openCreateView(nil)
 			case "r":
 				m.state = viewLoading
 				return m, tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider))
@@ -241,10 +294,28 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	t := item.task
 	m.selectedTask = &t
 	m.state = viewDetail
-	m.detail = viewport.New(m.width, m.height-verticalOverhead)
+	m.subtasks = nil
+	m.subtaskCursor = 0
+	m.detailFocus = detailFocusViewport
+
+	contentHeight := m.height - verticalOverhead
+	m.detail = viewport.New(m.width, contentHeight)
 	m.detail.SetContent(renderTaskDetail(t, m.width))
 
-	return m, nil
+	// Lazily fetch subtasks if the provider supports it.
+	var cmd tea.Cmd
+	if fetcher, ok := m.provider.(tasks.SubtaskFetcher); ok {
+		cmd = loadSubtasksCmd(fetcher, t.ID)
+	}
+	return m, cmd
+}
+
+// loadSubtasksCmd returns a Cmd that fetches subtasks in the background.
+func loadSubtasksCmd(f tasks.SubtaskFetcher, parentID string) tea.Cmd {
+	return func() tea.Msg {
+		ts, err := f.GetSubtasks(parentID)
+		return subtasksLoadedMsg{tasks: ts, err: err}
+	}
 }
 
 func (m Model) renderLoadingView() string {
@@ -277,7 +348,13 @@ func (m Model) renderErrorView() string {
 func (m Model) renderListView() string {
 	header := renderHeaderBar("⚡ flow", m.width)
 	sep := renderSeparator(m.width)
-	footer := renderFooterBar("↑/↓  navigate   enter  open   /  filter   esc  clear filter   r  refresh   q  quit", m.width)
+
+	footerText := "↑/↓  navigate   enter  open   /  filter   esc  clear filter   r  refresh"
+	if _, canCreate := m.provider.(tasks.Creator); canCreate {
+		footerText += "   n  new"
+	}
+	footerText += "   q  quit"
+	footer := renderFooterBar(footerText, m.width)
 
 	var content string
 	if len(m.list.VisibleItems()) == 0 && m.list.FilterState() == list.FilterApplied {
@@ -313,12 +390,84 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.openBranchView()
 		case "e":
 			return m.openEditView()
+		case "n":
+			return m.openCreateView(m.selectedTask)
+		case "tab":
+			// Toggle focus between viewport and subtask list (only if subtasks exist).
+			if len(m.subtasks) > 0 {
+				if m.detailFocus == detailFocusViewport {
+					m.detailFocus = detailFocusSubtasks
+				} else {
+					m.detailFocus = detailFocusViewport
+				}
+			}
+			return m, nil
+		case "up", "k":
+			if m.detailFocus == detailFocusSubtasks {
+				if m.subtaskCursor > 0 {
+					m.subtaskCursor--
+				}
+				return m, nil
+			}
+		case "down", "j":
+			if m.detailFocus == detailFocusSubtasks {
+				if m.subtaskCursor < len(m.subtasks)-1 {
+					m.subtaskCursor++
+				}
+				return m, nil
+			}
+		case "enter":
+			if m.detailFocus == detailFocusSubtasks && len(m.subtasks) > 0 {
+				return m.openSubtaskDetail(m.subtasks[m.subtaskCursor])
+			}
 		}
 	}
 
+	if m.detailFocus == detailFocusViewport {
+		var cmd tea.Cmd
+		m.detail, cmd = m.detail.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+// openSubtaskDetail opens a subtask's detail view (same view, different task).
+func (m Model) openSubtaskDetail(t tasks.Task) (tea.Model, tea.Cmd) {
+	m.selectedTask = &t
+	m.subtasks = nil
+	m.subtaskCursor = 0
+	m.detailFocus = detailFocusViewport
+
+	contentHeight := m.height - verticalOverhead
+	m.detail = viewport.New(m.width, contentHeight)
+	m.detail.SetContent(renderTaskDetail(t, m.width))
+
 	var cmd tea.Cmd
-	m.detail, cmd = m.detail.Update(msg)
+	if fetcher, ok := m.provider.(tasks.SubtaskFetcher); ok {
+		cmd = loadSubtasksCmd(fetcher, t.ID)
+	}
 	return m, cmd
+}
+
+// handleSubtasksLoaded stores fetched subtasks and adjusts viewport height.
+func (m Model) handleSubtasksLoaded(msg subtasksLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil || len(msg.tasks) == 0 {
+		return m, nil
+	}
+	m.subtasks = msg.tasks
+	m.subtaskCursor = 0
+	// Shrink viewport to make room for the subtask section.
+	subtaskSectionH := subtaskSectionHeight(len(m.subtasks))
+	contentH := m.height - verticalOverhead - subtaskSectionH
+	m.detail.Height = max(3, contentH)
+	return m, nil
+}
+
+// subtaskSectionHeight returns the number of terminal rows the subtask section
+// occupies: 1 header line + 1 line per subtask, capped at 8 subtasks shown.
+func subtaskSectionHeight(n int) int {
+	shown := min(n, 8)
+	return shown + 2 // header row + blank separator
 }
 
 func (m Model) renderDetailView() string {
@@ -333,19 +482,56 @@ func (m Model) renderDetailView() string {
 	if _, canEdit := m.provider.(tasks.Updater); canEdit {
 		footerText += "   e  edit"
 	}
+	if _, canCreate := m.provider.(tasks.Creator); canCreate {
+		footerText += "   n  new subtask"
+	}
+	if len(m.subtasks) > 0 {
+		footerText += "   tab  focus subtasks"
+	}
 	footerText += "   q  quit"
 	if m.statusMessage != "" {
 		footerText = m.statusMessage
 	}
 	footer := renderFooterBar(footerText, m.width)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		sep,
-		m.detail.View(),
-		sep,
-		footer,
-	)
+	parts := []string{header, sep, m.detail.View()}
+
+	// Render the subtask mini-list when subtasks are available.
+	if len(m.subtasks) > 0 {
+		parts = append(parts, m.renderSubtaskSection())
+	}
+
+	parts = append(parts, sep, footer)
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func (m Model) renderSubtaskSection() string {
+	focused := m.detailFocus == detailFocusSubtasks
+
+	headerLabel := dimStyle.Render("── Subtasks")
+	if focused {
+		headerLabel = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render("── Subtasks")
+	}
+	header := lipgloss.NewStyle().Padding(0, 1).Render(headerLabel)
+
+	var rows []string
+	shown := min(len(m.subtasks), 8)
+	for i := 0; i < shown; i++ {
+		t := m.subtasks[i]
+		cursor := "  "
+		style := dimStyle
+		if focused && i == m.subtaskCursor {
+			cursor = lipgloss.NewStyle().Foreground(colorPrimary).Render("▶ ")
+			style = lipgloss.NewStyle().Foreground(colorText).Bold(true)
+		}
+		id := lipgloss.NewStyle().Foreground(colorPrimary).Render(t.ID)
+		title := style.Render(t.Title)
+		status := lipgloss.NewStyle().Foreground(statusColor(t.Status)).Render(t.Status.String())
+		row := cursor + id + "  " + title + "  " + dimStyle.Render(status)
+		rows = append(rows, lipgloss.NewStyle().Padding(0, 1).Render(row))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, append([]string{header}, rows...)...)
 }
 
 // ── Branch creation view ──────────────────────────────────────────────────────
@@ -555,6 +741,127 @@ func (m Model) renderEditView() string {
 }
 
 
+
+// ── Create view ───────────────────────────────────────────────────────────────
+
+func (m Model) openCreateView(parent *tasks.Task) (tea.Model, tea.Cmd) {
+	if _, ok := m.provider.(tasks.Creator); !ok {
+		m.statusMessage = "✗  This provider does not support creating tasks"
+		return m, nil
+	}
+
+	cm := NewTaskCreateModel(parent)
+	cm.width = m.width
+	cm.height = m.height
+	cm.applyWidths()
+	m.createModel = cm
+	m.state = viewCreate
+	m.statusMessage = ""
+	return m, textinput.Blink
+}
+
+func (m Model) updateCreateView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			if m.createModel.parentTask != nil {
+				m.state = viewDetail
+			} else {
+				m.state = viewList
+			}
+			return m, nil
+		case "ctrl+s":
+			if m.createModel.saving {
+				return m, nil
+			}
+			if m.createModel.BuildInput().Title == "" {
+				m.createModel = m.createModel.SetError("Title is required")
+				return m, nil
+			}
+			creator := m.provider.(tasks.Creator)
+			m.createModel = m.createModel.SetSaving(true)
+			return m, tea.Batch(
+				m.createModel.spinner.Tick,
+				createTaskCmd(creator, m.createModel.BuildInput()),
+			)
+		}
+	}
+
+	var cmd tea.Cmd
+	m.createModel, cmd = m.createModel.Update(msg)
+	return m, cmd
+}
+
+func createTaskCmd(c tasks.Creator, input tasks.CreateInput) tea.Cmd {
+	return func() tea.Msg {
+		t, err := c.Create(input)
+		return taskCreatedMsg{task: t, err: err}
+	}
+}
+
+func (m Model) handleTaskCreated(msg taskCreatedMsg) (tea.Model, tea.Cmd) {
+	m.createModel = m.createModel.SetSaving(false)
+	if msg.err != nil {
+		m.createModel = m.createModel.SetError(msg.err.Error())
+		return m, nil
+	}
+
+	// Add new task to the local slice and refresh the list.
+	m.tasks = append(m.tasks, msg.task)
+	items := make([]list.Item, len(m.tasks))
+	for i, t := range m.tasks {
+		items[i] = taskItem{task: t}
+	}
+	m.list.SetItems(items)
+
+	// If this was a subtask, go back to the parent detail and reload subtasks.
+	if msg.task.ParentID != "" {
+		// Update HasChildren flag on the parent task.
+		for i := range m.tasks {
+			if m.tasks[i].ID == msg.task.ParentID {
+				m.tasks[i].HasChildren = true
+				if m.selectedTask != nil && m.selectedTask.ID == msg.task.ParentID {
+					m.selectedTask = &m.tasks[i]
+				}
+			}
+		}
+		m.subtasks = append(m.subtasks, msg.task)
+		// Adjust viewport height for the new subtask.
+		subtaskSectionH := subtaskSectionHeight(len(m.subtasks))
+		m.detail.Height = max(3, m.height-verticalOverhead-subtaskSectionH)
+		m.state = viewDetail
+		m.statusMessage = "✓  Subtask created: " + msg.task.ID
+	} else {
+		m.state = viewList
+		m.statusMessage = "✓  Task created: " + msg.task.ID
+	}
+	return m, nil
+}
+
+func (m Model) renderCreateView() string {
+	isSubtask := m.createModel.parentTask != nil
+
+	var breadcrumb string
+	if isSubtask && m.selectedTask != nil {
+		breadcrumb = "⚡ flow  /  " + m.selectedTask.ID + "  /  new subtask"
+	} else {
+		breadcrumb = "⚡ flow  /  new task"
+	}
+
+	sep := renderSeparator(m.width)
+	header := renderHeaderBar(breadcrumb, m.width)
+	footer := renderFooterBar("tab  next field   shift+tab  prev field   ◀/▶  priority   ctrl+s  save   esc  discard", m.width)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		sep,
+		m.createModel.View(),
+		sep,
+		footer,
+	)
+}
 
 func renderHeaderBar(title string, width int) string {
 	return appHeaderStyle.Width(width).Render(title)

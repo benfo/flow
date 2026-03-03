@@ -102,7 +102,25 @@ var (
 			Padding(0, 1)
 )
 
-// ── Badge renderers ───────────────────────────────────────────────────────────
+// ── Form field helper (shared by taskedit.go and taskcreate.go) ───────────────
+
+// renderFormField renders a labelled bordered box around content. Used by both
+// the edit and create forms so the visual treatment is identical.
+func renderFormField(label, content string, focused bool) string {
+	borderColor := colorBorder
+	if focused {
+		borderColor = colorPrimary
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(0, 1).
+		Render(content)
+	return lipgloss.JoinVertical(lipgloss.Left,
+		editLabelStyle(focused).Padding(1, 2, 0, 2).Render(label),
+		lipgloss.NewStyle().Padding(0, 2).Render(box),
+	)
+}
 
 // renderStatusBadge returns a coloured status label string.
 func renderStatusBadge(s tasks.Status) string {
