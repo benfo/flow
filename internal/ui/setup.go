@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/ben-fourie/flow-cli/internal/config"
@@ -106,16 +107,40 @@ func NewSetupModel() SetupModel {
 	}
 }
 
+// setupDelegate renders setup wizard list items with a ▶ cursor for the
+// selected row, making selection unambiguous even in colour-limited terminals.
+type setupDelegate struct{}
+
+func (d setupDelegate) Height() int                              { return 2 }
+func (d setupDelegate) Spacing() int                            { return 1 }
+func (d setupDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+
+func (d setupDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	s, ok := item.(setupItem)
+	if !ok {
+		return
+	}
+
+	isSelected := index == m.Index()
+
+	var cursor, titleStr, descStr string
+	if isSelected {
+		cursor = selectedItemStyle.Render("▶")
+		titleStr = selectedItemStyle.Bold(true).Render(s.title)
+		descStr = dimStyle.Render("  " + s.desc)
+	} else {
+		cursor = "  "
+		titleStr = normalItemStyle.Render(s.title)
+		descStr = dimStyle.Render("  " + s.desc)
+	}
+
+	fmt.Fprintln(w, cursor+" "+titleStr)
+	fmt.Fprint(w, descStr)
+}
+
 func buildSetupLists(templateItems, sepItems, scopeItems []list.Item) map[setupStep]list.Model {
 	newList := func(items []list.Item) list.Model {
-		d := list.NewDefaultDelegate()
-		d.Styles.SelectedTitle = selectedItemStyle.Copy().Bold(true)
-		d.Styles.SelectedDesc = dimStyle.Copy()
-		d.Styles.NormalTitle = normalItemStyle
-		d.Styles.NormalDesc = dimStyle
-		d.ShowDescription = true
-
-		l := list.New(items, d, 0, 0)
+		l := list.New(items, setupDelegate{}, 0, 0)
 		l.SetShowTitle(false)
 		l.SetShowHelp(false)
 		l.SetShowStatusBar(false)
@@ -301,19 +326,22 @@ func (m SetupModel) renderDoneView() string {
 		body = lipgloss.NewStyle().Foreground(colorPriorityCritical).Padding(2, 2).
 			Render("✗  Failed to save configuration:\n\n   " + m.saveErr.Error())
 	} else {
-		rows := []string{
+		heading := lipgloss.NewStyle().
+			Foreground(colorStatusDone).Bold(true).Padding(1, 2).
+			Render("✓  Configuration saved!")
+
+		rows := strings.Join([]string{
 			renderDoneRow("Template", presetNameFor(m.draft.Template)),
 			renderDoneRow("Separator", separatorLabel(m.draft.Separator)),
 			renderDoneRow("Saved to", m.savedTo),
-			"",
-			lipgloss.JoinHorizontal(lipgloss.Left,
-				dimStyle.Padding(0, 2).Render("Preview:"),
-				lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Padding(0, 1).Render(m.draft.Preview()),
-			),
-		}
-		body = lipgloss.NewStyle().Padding(1, 0).
-			Render(lipgloss.NewStyle().Foreground(colorStatusDone).Bold(true).Padding(1, 2).Render("✓  Configuration saved!")+
-				"\n"+strings.Join(rows, "\n"))
+		}, "\n")
+
+		preview := lipgloss.JoinHorizontal(lipgloss.Left,
+			dimStyle.Padding(1, 2).Render("Preview:"),
+			lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Padding(1, 1).Render(m.draft.Preview()),
+		)
+
+		body = lipgloss.JoinVertical(lipgloss.Left, heading, rows, preview)
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, sep, body, sep, footer)
