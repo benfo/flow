@@ -18,6 +18,7 @@ import (
 type Config struct {
 	Branch    BranchConfig    `yaml:"branch"`
 	Providers ProvidersConfig `yaml:"providers,omitempty"`
+	Theme     string          `yaml:"theme,omitempty"`
 }
 
 // ProvidersConfig lists which task providers are active and holds their settings.

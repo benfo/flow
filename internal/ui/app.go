@@ -167,6 +167,9 @@ type Model struct {
 // New constructs the Model. Task loading is deferred to Init() so the UI
 // can show a spinner while the network request is in flight.
 func New(provider tasks.Provider, cfg config.Config) (Model, error) {
+	SetTheme(cfg.Theme)
+	initStyles()
+
 	l := list.New(nil, taskDelegate{}, 0, 0)
 	l.SetShowTitle(false)
 	l.SetShowHelp(false)

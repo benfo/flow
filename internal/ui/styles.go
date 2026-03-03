@@ -10,99 +10,133 @@ import (
 )
 
 // ── Colour palette ────────────────────────────────────────────────────────────
-// Inspired by the Tokyo Night theme for consistency across modern terminals.
+// These vars are set by initStyles() from the active theme. Do not reference
+// them before initStyles() has been called (i.e. before ui.New()).
 
-const (
-	colorSurface  = lipgloss.Color("#24283b")
-	colorText     = lipgloss.Color("#c0caf5")
-	colorSubtle   = lipgloss.Color("#565f89")
-	colorPrimary  = lipgloss.Color("#7aa2f7")
-	colorBorder   = lipgloss.Color("#3b4261")
+var (
+	colorSurface  lipgloss.Color
+	colorText     lipgloss.Color
+	colorSubtle   lipgloss.Color
+	colorPrimary  lipgloss.Color
+	colorBorder   lipgloss.Color
 
-	colorStatusTodo       = lipgloss.Color("#565f89")
-	colorStatusInProgress = lipgloss.Color("#7aa2f7")
-	colorStatusInReview   = lipgloss.Color("#e0af68")
-	colorStatusDone       = lipgloss.Color("#9ece6a")
+	colorStatusTodo       lipgloss.Color
+	colorStatusInProgress lipgloss.Color
+	colorStatusInReview   lipgloss.Color
+	colorStatusDone       lipgloss.Color
 
-	colorPriorityLow      = lipgloss.Color("#565f89")
-	colorPriorityMedium   = lipgloss.Color("#e0af68")
-	colorPriorityHigh     = lipgloss.Color("#ff9e64")
-	colorPriorityCritical = lipgloss.Color("#f7768e")
+	colorPriorityLow      lipgloss.Color
+	colorPriorityMedium   lipgloss.Color
+	colorPriorityHigh     lipgloss.Color
+	colorPriorityCritical lipgloss.Color
 )
 
 // ── Layout styles ─────────────────────────────────────────────────────────────
+// Declared here; assigned in initStyles() after the theme is loaded.
 
 var (
+	appHeaderStyle           lipgloss.Style
+	appFooterStyle           lipgloss.Style
+	separatorStyle           lipgloss.Style
+	listTitleStyle           lipgloss.Style
+	emptyStateStyle          lipgloss.Style
+	selectedItemStyle        lipgloss.Style
+	normalItemStyle          lipgloss.Style
+	dimStyle                 lipgloss.Style
+	detailTitleStyle         lipgloss.Style
+	detailSectionHeaderStyle lipgloss.Style
+	detailLabelStyle         lipgloss.Style
+	detailValueStyle         lipgloss.Style
+	dividerStyle             lipgloss.Style
+	labelBadgeStyle          lipgloss.Style
+)
+
+// initStyles rebuilds every Lip Gloss style from the current activeTheme.
+// Must be called once after SetTheme(), before any rendering.
+func initStyles() {
+	// Populate colour vars from the active theme.
+	colorSurface  = activeTheme.Surface
+	colorText     = activeTheme.Text
+	colorSubtle   = activeTheme.Subtle
+	colorPrimary  = activeTheme.Primary
+	colorBorder   = activeTheme.Border
+
+	colorStatusTodo       = activeTheme.StatusTodo
+	colorStatusInProgress = activeTheme.StatusInProgress
+	colorStatusInReview   = activeTheme.StatusInReview
+	colorStatusDone       = activeTheme.StatusDone
+
+	colorPriorityLow      = activeTheme.PriorityLow
+	colorPriorityMedium   = activeTheme.PriorityMedium
+	colorPriorityHigh     = activeTheme.PriorityHigh
+	colorPriorityCritical = activeTheme.PriorityCritical
+
+	// Rebuild layout styles.
 	appHeaderStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorPrimary).
-			Background(colorSurface).
-			Padding(0, 1)
+		Bold(true).
+		Foreground(colorPrimary).
+		Background(colorSurface).
+		Padding(0, 1)
 
 	appFooterStyle = lipgloss.NewStyle().
-			Foreground(colorSubtle).
-			Background(colorSurface).
-			Padding(0, 1)
+		Foreground(colorSubtle).
+		Background(colorSurface).
+		Padding(0, 1)
 
 	separatorStyle = lipgloss.NewStyle().
-			Foreground(colorBorder)
+		Foreground(colorBorder)
 
 	listTitleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorPrimary).
-			Padding(0, 1)
+		Bold(true).
+		Foreground(colorPrimary).
+		Padding(0, 1)
 
 	emptyStateStyle = lipgloss.NewStyle().
-			Foreground(colorSubtle).
-			Italic(true).
-			Padding(2, 2)
-)
+		Foreground(colorSubtle).
+		Italic(true).
+		Padding(2, 2)
 
-// ── List item styles ──────────────────────────────────────────────────────────
-
-var (
+	// List item styles.
 	selectedItemStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorPrimary)
+		Bold(true).
+		Foreground(colorPrimary)
 
 	normalItemStyle = lipgloss.NewStyle().
-			Foreground(colorText)
+		Foreground(colorText)
 
 	dimStyle = lipgloss.NewStyle().
-			Foreground(colorSubtle)
-)
+		Foreground(colorSubtle)
 
-// ── Detail view styles ────────────────────────────────────────────────────────
-
-var (
+	// Detail view styles.
 	detailTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorPrimary).
-				Padding(0, 1)
+		Bold(true).
+		Foreground(colorPrimary).
+		Padding(0, 1)
 
 	detailSectionHeaderStyle = lipgloss.NewStyle().
-					Bold(true).
-					Foreground(colorSubtle).
-					Padding(0, 1)
+		Bold(true).
+		Foreground(colorSubtle).
+		Padding(0, 1)
 
 	detailLabelStyle = lipgloss.NewStyle().
-				Foreground(colorSubtle).
-				Width(12).
-				Padding(0, 1)
+		Foreground(colorSubtle).
+		Width(12).
+		Padding(0, 1)
 
 	detailValueStyle = lipgloss.NewStyle().
-				Foreground(colorText).
-				Padding(0, 1)
+		Foreground(colorText).
+		Padding(0, 1)
 
 	dividerStyle = lipgloss.NewStyle().
-			Foreground(colorBorder)
+		Foreground(colorBorder)
 
 	labelBadgeStyle = lipgloss.NewStyle().
-			Foreground(colorSubtle).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorBorder).
-			Padding(0, 1)
-)
+		Foreground(colorSubtle).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorBorder).
+		Padding(0, 1)
+}
+
 
 // ── Form field helper (shared by taskedit.go and taskcreate.go) ───────────────
 
