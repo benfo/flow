@@ -5,8 +5,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/ben-fourie/flow-cli/internal/config"
-	igit "github.com/ben-fourie/flow-cli/internal/git"
+	"github.com/benfo/flow/internal/config"
+	igit "github.com/benfo/flow/internal/git"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

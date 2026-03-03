@@ -4,8 +4,8 @@ import (
 	"regexp"
 	"strings"
 
-	igit "github.com/ben-fourie/flow-cli/internal/git"
-	"github.com/ben-fourie/flow-cli/internal/tasks"
+	igit "github.com/benfo/flow/internal/git"
+	"github.com/benfo/flow/internal/tasks"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

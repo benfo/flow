@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"github.com/ben-fourie/flow-cli/internal/tasks"
+	"github.com/benfo/flow/internal/tasks"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"

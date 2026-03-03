@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ben-fourie/flow-cli/internal/config"
-	igit "github.com/ben-fourie/flow-cli/internal/git"
-	"github.com/ben-fourie/flow-cli/internal/ui"
+	"github.com/benfo/flow/internal/config"
+	igit "github.com/benfo/flow/internal/git"
+	"github.com/benfo/flow/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 )

@@ -3,7 +3,7 @@ package ui
 import (
 	"fmt"
 
-	"github.com/ben-fourie/flow-cli/internal/tasks"
+	"github.com/benfo/flow/internal/tasks"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

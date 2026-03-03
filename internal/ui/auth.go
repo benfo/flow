@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ben-fourie/flow-cli/internal/config"
-	"github.com/ben-fourie/flow-cli/internal/keychain"
-	"github.com/ben-fourie/flow-cli/internal/providers/jira"
+	"github.com/benfo/flow/internal/config"
+	"github.com/benfo/flow/internal/keychain"
+	"github.com/benfo/flow/internal/providers/jira"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"

@@ -1,4 +1,4 @@
-module github.com/ben-fourie/flow-cli
+module github.com/benfo/flow
 
 go 1.25.0
 

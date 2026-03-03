@@ -5,7 +5,7 @@ package ui
 import (
 	"strings"
 
-	"github.com/ben-fourie/flow-cli/internal/tasks"
+	"github.com/benfo/flow/internal/tasks"
 	"github.com/charmbracelet/lipgloss"
 )
 

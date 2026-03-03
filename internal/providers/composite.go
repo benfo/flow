@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ben-fourie/flow-cli/internal/tasks"
+	"github.com/benfo/flow/internal/tasks"
 )
 
 // CompositeProvider merges tasks from multiple providers into a single list.
