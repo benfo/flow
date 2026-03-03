@@ -22,6 +22,7 @@ const (
 	viewList    viewState = iota
 	viewDetail  viewState = iota
 	viewBranch  viewState = iota
+	viewEdit    viewState = iota
 	viewError   viewState = iota
 )
 
@@ -35,6 +36,12 @@ type tasksLoadedMsg struct {
 	err   error
 }
 
+// taskSavedMsg carries the result of an async task update.
+type taskSavedMsg struct {
+	task tasks.Task
+	err  error
+}
+
 // ── Root model ────────────────────────────────────────────────────────────────
 
 // Model is the root Bubble Tea model for the flow dashboard.
@@ -42,6 +49,7 @@ type Model struct {
 	list          list.Model
 	detail        viewport.Model
 	branchInput   textinput.Model
+	editModel     TaskEditModel
 	spinner       spinner.Model
 	cfg           config.Config
 	provider      tasks.Provider
@@ -109,6 +117,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTasksLoaded(loaded)
 	}
 
+	// Handle async task save result.
+	if saved, ok := msg.(taskSavedMsg); ok {
+		return m.handleTaskSaved(saved)
+	}
+
 	// Keep the spinner ticking while loading.
 	if m.state == viewLoading {
 		var cmd tea.Cmd
@@ -123,6 +136,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateDetailView(msg)
 	case viewBranch:
 		return m.updateBranchView(msg)
+	case viewEdit:
+		return m.updateEditView(msg)
 	case viewError:
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
@@ -170,6 +185,8 @@ func (m Model) View() string {
 		return m.renderDetailView()
 	case viewBranch:
 		return m.renderBranchView()
+	case viewEdit:
+		return m.renderEditView()
 	case viewError:
 		return m.renderErrorView()
 	}
@@ -294,6 +311,8 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "b":
 			return m.openBranchView()
+		case "e":
+			return m.openEditView()
 		}
 	}
 
@@ -310,7 +329,11 @@ func (m Model) renderDetailView() string {
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  "+id, m.width)
 
-	footerText := "esc  back   ↑/↓  scroll   o  open in browser   b  create branch   q  quit"
+	footerText := "esc  back   ↑/↓  scroll   o  open in browser   b  create branch"
+	if _, canEdit := m.provider.(tasks.Updater); canEdit {
+		footerText += "   e  edit"
+	}
+	footerText += "   q  quit"
 	if m.statusMessage != "" {
 		footerText = m.statusMessage
 	}
@@ -428,7 +451,111 @@ func (m Model) renderBranchView() string {
 	)
 }
 
-// ── Shared layout helpers ─────────────────────────────────────────────────────
+// ── Edit view ─────────────────────────────────────────────────────────────────
+
+func (m Model) openEditView() (tea.Model, tea.Cmd) {
+	if m.selectedTask == nil {
+		return m, nil
+	}
+	if _, ok := m.provider.(tasks.Updater); !ok {
+		m.statusMessage = "✗  This provider does not support editing"
+		return m, nil
+	}
+
+	m.editModel = NewTaskEditModel(*m.selectedTask)
+	m.editModel.titleInput.Width = m.width - 8
+	m.editModel.descInput.SetWidth(m.width - 8)
+	m.editModel.descInput.SetHeight(max(8, m.height-14))
+	m.editModel.width = m.width
+	m.editModel.height = m.height
+	m.state = viewEdit
+	m.statusMessage = ""
+	return m, textinput.Blink
+}
+
+func (m Model) updateEditView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			m.state = viewDetail
+			return m, nil
+		case "ctrl+s":
+			if m.editModel.saving {
+				return m, nil
+			}
+			updater, ok := m.provider.(tasks.Updater)
+			if !ok {
+				return m, nil
+			}
+			m.editModel = m.editModel.SetSaving(true)
+			return m, tea.Batch(
+				m.editModel.spinner.Tick,
+				saveTaskCmd(updater, m.editModel.EditedTask()),
+			)
+		}
+	}
+
+	var cmd tea.Cmd
+	m.editModel, cmd = m.editModel.Update(msg)
+	return m, cmd
+}
+
+func saveTaskCmd(u tasks.Updater, t tasks.Task) tea.Cmd {
+	return func() tea.Msg {
+		err := u.Update(t)
+		return taskSavedMsg{task: t, err: err}
+	}
+}
+
+func (m Model) handleTaskSaved(msg taskSavedMsg) (tea.Model, tea.Cmd) {
+	m.editModel = m.editModel.SetSaving(false)
+	if msg.err != nil {
+		m.editModel = m.editModel.SetError(msg.err.Error())
+		return m, nil
+	}
+
+	// Update the task in the local slice and refresh the list.
+	for i := range m.tasks {
+		if m.tasks[i].ID == msg.task.ID {
+			m.tasks[i] = msg.task
+			m.selectedTask = &m.tasks[i]
+			break
+		}
+	}
+	items := make([]list.Item, len(m.tasks))
+	for i, t := range m.tasks {
+		items[i] = taskItem{task: t}
+	}
+	m.list.SetItems(items)
+
+	// Refresh the detail view content with updated task.
+	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width))
+
+	m.statusMessage = "✓  Saved"
+	m.state = viewDetail
+	return m, nil
+}
+
+func (m Model) renderEditView() string {
+	if m.selectedTask == nil {
+		return ""
+	}
+	sep := renderSeparator(m.width)
+	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  edit", m.width)
+	footer := renderFooterBar("tab  switch field   ctrl+s  save   esc  discard", m.width)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		sep,
+		m.editModel.View(),
+		sep,
+		footer,
+	)
+}
+
+
 
 func renderHeaderBar(title string, width int) string {
 	return appHeaderStyle.Width(width).Render(title)

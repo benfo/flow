@@ -69,7 +69,14 @@ func (p *Provider) GetTasks() ([]tasks.Task, error) {
 	return mapIssues(resp.Issues, p.cfg.BaseURL), nil
 }
 
-// buildJQL constructs the JQL query, optionally scoped to configured projects.
+// Update satisfies tasks.Updater. It writes the new Title and Description
+// back to Jira using a PUT request. The description is converted from plain
+// text to Atlassian Document Format (ADF) before sending.
+func (p *Provider) Update(task tasks.Task) error {
+	return p.client.updateIssue(task.ID, task.Title, task.Description)
+}
+
+
 func (p *Provider) buildJQL() string {
 	base := "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
 	if len(p.cfg.Projects) == 0 {
@@ -113,6 +120,80 @@ func (c *client) get(path string) (*http.Response, error) {
 	req.Header.Set("Authorization", c.auth)
 	req.Header.Set("Accept", "application/json")
 	return c.http.Do(req)
+}
+
+func (c *client) put(path string, body interface{}) (*http.Response, error) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPut, c.baseURL+path, strings.NewReader(string(data)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", c.auth)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	return c.http.Do(req)
+}
+
+// updateIssue writes a new summary and description to the given issue key.
+func (c *client) updateIssue(key, summary, description string) error {
+	body := map[string]interface{}{
+		"fields": map[string]interface{}{
+			"summary":     summary,
+			"description": plainTextToADF(description),
+		},
+	}
+	resp, err := c.put("/rest/api/3/issue/"+key, body)
+	if err != nil {
+		return fmt.Errorf("jira update %s: %w", key, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("jira update %s returned HTTP %d: %s", key, resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+// plainTextToADF converts a plain-text string to Atlassian Document Format.
+// Blank-line-separated blocks become paragraphs; single newlines within a
+// block become hardBreak nodes so formatting is preserved.
+func plainTextToADF(text string) map[string]interface{} {
+	blocks := strings.Split(strings.TrimSpace(text), "\n\n")
+	content := make([]interface{}, 0, len(blocks))
+
+	for _, block := range blocks {
+		if block == "" {
+			continue
+		}
+		lines := strings.Split(block, "\n")
+		nodes := make([]interface{}, 0, len(lines)*2)
+		for i, line := range lines {
+			nodes = append(nodes, map[string]interface{}{"type": "text", "text": line})
+			if i < len(lines)-1 {
+				nodes = append(nodes, map[string]interface{}{"type": "hardBreak"})
+			}
+		}
+		content = append(content, map[string]interface{}{
+			"type":    "paragraph",
+			"content": nodes,
+		})
+	}
+
+	if len(content) == 0 {
+		content = []interface{}{
+			map[string]interface{}{"type": "paragraph", "content": []interface{}{}},
+		}
+	}
+
+	return map[string]interface{}{
+		"type":    "doc",
+		"version": 1,
+		"content": content,
+	}
 }
 
 // MyselfResponse is the subset of /rest/api/3/myself we care about.

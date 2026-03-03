@@ -1,20 +1,45 @@
 package tasks
 
-// MockProvider returns a static set of realistic tasks.
-// It is used during development and for UI testing before real integrations exist.
-type MockProvider struct{}
+import "fmt"
 
-// NewMockProvider creates a new MockProvider.
+// MockProvider returns a realistic set of tasks for development and UI testing.
+// It holds mutable state so edits made via Update() are reflected in subsequent
+// GetTasks() calls within the same session.
+type MockProvider struct {
+	tasks []Task
+}
+
+// NewMockProvider creates a MockProvider seeded with realistic sample tasks.
 func NewMockProvider() *MockProvider {
-	return &MockProvider{}
+	return &MockProvider{tasks: seedTasks()}
 }
 
 // Name satisfies Provider.
 func (m *MockProvider) Name() string { return "Mock" }
 
-// GetTasks returns a curated set of mock tasks that cover a variety of
-// statuses, priorities, and label combinations.
+// GetTasks satisfies Provider.
 func (m *MockProvider) GetTasks() ([]Task, error) {
+	// Return a copy so callers cannot mutate internal state directly.
+	out := make([]Task, len(m.tasks))
+	copy(out, m.tasks)
+	return out, nil
+}
+
+// Update satisfies Updater. It applies the new Title and Description to the
+// matching task in the in-memory slice.
+func (m *MockProvider) Update(task Task) error {
+	for i, t := range m.tasks {
+		if t.ID == task.ID {
+			m.tasks[i].Title = task.Title
+			m.tasks[i].Description = task.Description
+			return nil
+		}
+	}
+	return fmt.Errorf("task %s not found", task.ID)
+}
+
+// seedTasks returns the initial set of mock tasks.
+func seedTasks() []Task {
 	return []Task{
 		{
 			ID:    "FLOW-001",
@@ -220,5 +245,6 @@ Checklist:
 			Labels:   []string{"release", "devops"},
 			Project:  "Flow CLI",
 		},
-	}, nil
+	}
 }
+

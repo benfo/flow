@@ -76,3 +76,12 @@ type Provider interface {
 	// GetTasks fetches the current user's relevant tasks.
 	GetTasks() ([]Task, error)
 }
+
+// Updater is an optional capability a Provider may implement to support
+// editing tasks in-place. Providers that are read-only do not need to
+// implement this interface.
+type Updater interface {
+	// Update writes a modified task back to the upstream provider.
+	// Only Title and Description are expected to be updated.
+	Update(task Task) error
+}
