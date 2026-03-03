@@ -424,7 +424,12 @@ func (m Model) renderSubtaskSection() string {
 
 	var rows []string
 	shown := min(len(m.subtasks), 8)
-	for i := 0; i < shown; i++ {
+	// Scroll the window so the cursor is always visible.
+	start := 0
+	if m.subtaskCursor >= shown {
+		start = m.subtaskCursor - shown + 1
+	}
+	for i := start; i < start+shown; i++ {
 		t := m.subtasks[i]
 		cursor := "  "
 		style := dimStyle
