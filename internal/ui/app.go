@@ -823,6 +823,9 @@ func (m Model) openCreateView(parent *tasks.Task) (tea.Model, tea.Cmd) {
 	cm := NewTaskCreateModel(parent)
 	cm.width = m.width
 	cm.height = m.height
+	if _, ok := m.provider.(tasks.SelfAssigner); ok {
+		cm.showAssign = true
+	}
 	cm.applyWidths()
 	m.createModel = cm
 	m.state = viewCreate
@@ -923,7 +926,7 @@ func (m Model) renderCreateView() string {
 
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar(breadcrumb, m.width)
-	footer := renderFooterBar("tab  next field   shift+tab  prev field   ◀/▶  priority   ctrl+s  save   esc  discard", m.width)
+	footer := renderFooterBar("tab  next field   shift+tab  prev field   ◀/▶  priority   space  toggle assign   ctrl+s  save   esc  discard", m.width)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,

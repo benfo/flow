@@ -63,9 +63,11 @@ func (m *MockProvider) Create(input CreateInput) (Task, error) {
 		Status:      StatusTodo,
 		Priority:    input.Priority,
 		URL:         "https://example.atlassian.net/browse/" + id,
-		Assignee:    "you",
 		Project:     "Flow CLI",
 		ParentID:    input.ParentID,
+	}
+	if input.AssignToSelf {
+		task.Assignee = "you"
 	}
 	m.tasks = append(m.tasks, task)
 

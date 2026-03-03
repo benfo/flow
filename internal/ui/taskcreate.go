@@ -16,6 +16,7 @@ const (
 	createFocusTitle    createFocus = iota
 	createFocusDesc     createFocus = iota
 	createFocusPriority createFocus = iota
+	createFocusAssign   createFocus = iota
 )
 
 // priorityOrder is the cycle order for the priority picker.
@@ -39,6 +40,8 @@ type TaskCreateModel struct {
 	spinner    spinner.Model
 
 	parentTask *tasks.Task // non-nil when creating a subtask
+	showAssign bool        // true when provider supports SelfAssigner
+	assignToSelf bool      // whether to assign task to current user on create
 	width      int
 	height     int
 }
@@ -98,10 +101,11 @@ func (m TaskCreateModel) BuildInput() tasks.CreateInput {
 		parentID = m.parentTask.ID
 	}
 	return tasks.CreateInput{
-		Title:       m.titleInput.Value(),
-		Description: m.descInput.Value(),
-		Priority:    m.priority,
-		ParentID:    parentID,
+		Title:        m.titleInput.Value(),
+		Description:  m.descInput.Value(),
+		Priority:     m.priority,
+		ParentID:     parentID,
+		AssignToSelf: m.assignToSelf,
 	}
 }
 
@@ -113,10 +117,13 @@ func (m *TaskCreateModel) applyWidths() {
 	contentW := max(20, m.width-8)
 	m.titleInput.Width = contentW
 	m.descInput.SetWidth(contentW)
-	// Reserve extra rows for priority field (3) and optional context banner (4).
+	// Reserve rows for priority (3), optional assign checkbox (3), and context banner (4).
 	overhead := 20
 	if m.parentTask != nil {
 		overhead += 4
+	}
+	if m.showAssign {
+		overhead += 3
 	}
 	m.descInput.SetHeight(max(4, m.height-overhead))
 }
@@ -154,6 +161,11 @@ func (m TaskCreateModel) Update(msg tea.Msg) (TaskCreateModel, tea.Cmd) {
 			if m.focused == createFocusPriority {
 				return m.shiftPriority(true), nil
 			}
+		case " ":
+			if m.focused == createFocusAssign {
+				m.assignToSelf = !m.assignToSelf
+				return m, nil
+			}
 		}
 	}
 
@@ -170,10 +182,14 @@ func (m TaskCreateModel) Update(msg tea.Msg) (TaskCreateModel, tea.Cmd) {
 func (m TaskCreateModel) cycleFocus(forward bool) TaskCreateModel {
 	m.titleInput.Blur()
 	m.descInput.Blur()
+	total := 3
+	if m.showAssign {
+		total = 4
+	}
 	if forward {
-		m.focused = createFocus((int(m.focused) + 1) % 3)
+		m.focused = createFocus((int(m.focused) + 1) % total)
 	} else {
-		m.focused = createFocus((int(m.focused) + 2) % 3)
+		m.focused = createFocus((int(m.focused) + total - 1) % total)
 	}
 	switch m.focused {
 	case createFocusTitle:
@@ -227,6 +243,10 @@ func (m TaskCreateModel) View() string {
 		m.renderPriorityField(),
 	)
 
+	if m.showAssign {
+		parts = append(parts, m.renderAssignField())
+	}
+
 	switch {
 	case m.saving:
 		parts = append(parts,
@@ -239,6 +259,35 @@ func (m TaskCreateModel) View() string {
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func (m TaskCreateModel) renderAssignField() string {
+	focused := m.focused == createFocusAssign
+
+	check := "☐"
+	if m.assignToSelf {
+		check = lipgloss.NewStyle().Foreground(colorPrimary).Render("☑")
+	}
+	labelStyle := dimStyle
+	if focused {
+		labelStyle = lipgloss.NewStyle().Foreground(colorText).Bold(true)
+	}
+	value := check + "  " + labelStyle.Render("Assign to me")
+
+	borderColor := colorBorder
+	if focused {
+		borderColor = colorPrimary
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(0, 1).
+		Render(value)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		editLabelStyle(focused).Padding(1, 2, 0, 2).Render("Assign"),
+		lipgloss.NewStyle().Padding(0, 2).Render(box),
+	)
 }
 
 func (m TaskCreateModel) renderPriorityField() string {

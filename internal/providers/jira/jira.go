@@ -177,14 +177,16 @@ func (p *Provider) Create(input tasks.CreateInput) (tasks.Task, error) {
 		"project":     map[string]string{"key": projectKey},
 	}
 
-	// Auto-assign to the current user. Fetch account ID lazily and cache it.
-	if p.accountID == "" {
-		if me, err := p.client.Myself(); err == nil {
-			p.accountID = me.AccountId
+	// Assign to the current user only when explicitly requested.
+	if input.AssignToSelf {
+		if p.accountID == "" {
+			if me, err := p.client.Myself(); err == nil {
+				p.accountID = me.AccountId
+			}
 		}
-	}
-	if p.accountID != "" {
-		fields["assignee"] = map[string]string{"accountId": p.accountID}
+		if p.accountID != "" {
+			fields["assignee"] = map[string]string{"accountId": p.accountID}
+		}
 	}
 
 	if input.ParentID != "" {

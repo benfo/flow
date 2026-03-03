@@ -72,12 +72,13 @@ type Task struct {
 
 // CreateInput is the provider-agnostic description of a new task or subtask.
 // ParentID is empty for top-level tasks; non-empty signals a subtask request.
-// Providers that do not support subtask linking may silently ignore ParentID.
+// AssignToSelf, when true, asks the provider to assign the task to the current user.
 type CreateInput struct {
-	Title       string
-	Description string
-	Priority    Priority
-	ParentID    string
+	Title        string
+	Description  string
+	Priority     Priority
+	ParentID     string
+	AssignToSelf bool
 }
 
 // Provider is the abstraction over any task management system.
