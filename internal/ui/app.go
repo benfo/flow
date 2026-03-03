@@ -112,6 +112,7 @@ type Model struct {
 	searchModel       TaskSearchModel
 	searchLoading     bool      // true while search is in flight
 	searchReturnState viewState // view to return to when search is dismissed
+	detailReturnState viewState // view to return to when detail is dismissed
 	statusMessage string          // transient feedback shown in the footer
 	loadErr       string          // shown in viewError
 	width         int
@@ -357,12 +358,13 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	return m.openDetailForTask(item.task)
+	return m.openDetailForTask(item.task, viewList)
 }
 
-func (m Model) openDetailForTask(t tasks.Task) (tea.Model, tea.Cmd) {
+func (m Model) openDetailForTask(t tasks.Task, returnTo viewState) (tea.Model, tea.Cmd) {
 	m.selectedTask = &t
 	m.state = viewDetail
+	m.detailReturnState = returnTo
 	m.subtasks = nil
 	m.subtaskCursor = 0
 	m.detailFocus = detailFocusViewport
@@ -449,7 +451,7 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "esc", "backspace":
-			m.state = viewList
+			m.state = m.detailReturnState
 			return m, nil
 		case "o":
 			if m.selectedTask != nil && m.selectedTask.URL != "" {
@@ -510,7 +512,7 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) openSubtaskDetail(t tasks.Task) (tea.Model, tea.Cmd) {
 	m.subtasks = nil
 	m.subtaskCursor = 0
-	return m.openDetailForTask(t)
+	return m.openDetailForTask(t, viewDetail)
 }
 
 // handleSubtasksLoaded stores fetched subtasks and adjusts viewport height.
@@ -911,7 +913,7 @@ func (m Model) handleTaskCreated(msg taskCreatedMsg) (tea.Model, tea.Cmd) {
 
 	// For top-level tasks, open the detail view immediately.
 	m.statusMessage = "✓  Task created: " + msg.task.ID
-	return m.openDetailForTask(msg.task)
+	return m.openDetailForTask(msg.task, viewList)
 }
 
 func (m Model) renderCreateView() string {
@@ -1125,7 +1127,7 @@ func (m Model) updateSearchView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			// Open the selected result if one is highlighted; otherwise search.
 			if t, ok := m.searchModel.Selected(); ok {
-				return m.openDetailForTask(t)
+				return m.openDetailForTask(t, viewSearch)
 			}
 			q := m.searchModel.Query()
 			if q == "" {
