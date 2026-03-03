@@ -115,3 +115,28 @@ type SubtaskFetcher interface {
 	// GetSubtasks returns the immediate children of the given task ID.
 	GetSubtasks(parentID string) ([]Task, error)
 }
+
+// StatusTransition describes a single workflow step available for a task.
+// The ID is provider-specific (e.g. a Jira transition ID); Name is the
+// human-readable label shown in the picker; To is the canonical Status that
+// the task will have after the transition.
+type StatusTransition struct {
+	ID   string
+	Name string
+	To   Status
+}
+
+// StatusUpdater is an optional capability a Provider may implement to support
+// moving a task through its workflow. Providers that are read-only or do not
+// expose workflow transitions do not need to implement this interface.
+type StatusUpdater interface {
+	// GetTransitions returns the transitions currently available for the given
+	// task. For providers with workflow rules (e.g. Jira) this is constrained
+	// by the issue's current state; for simpler providers it may return all
+	// statuses except the current one.
+	GetTransitions(taskID string) ([]StatusTransition, error)
+
+	// TransitionTask moves the task to the state identified by transitionID
+	// (the ID field from a StatusTransition) and returns the updated Task.
+	TransitionTask(taskID string, transitionID string) (Task, error)
+}

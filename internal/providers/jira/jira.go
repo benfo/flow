@@ -88,6 +88,37 @@ func (p *Provider) GetSubtasks(parentID string) ([]tasks.Task, error) {
 	return mapIssues(resp.Issues, p.cfg.BaseURL), nil
 }
 
+// GetTransitions satisfies tasks.StatusUpdater. It fetches the workflow
+// transitions currently available for the given issue key.
+func (p *Provider) GetTransitions(taskID string) ([]tasks.StatusTransition, error) {
+	resp, err := p.client.getTransitions(taskID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tasks.StatusTransition, len(resp.Transitions))
+	for i, tr := range resp.Transitions {
+		out[i] = tasks.StatusTransition{
+			ID:   tr.ID,
+			Name: tr.Name,
+			To:   mapStatus(tr.To.StatusCategory.Key),
+		}
+	}
+	return out, nil
+}
+
+// TransitionTask satisfies tasks.StatusUpdater. It fires the given transition
+// and returns the updated Task.
+func (p *Provider) TransitionTask(taskID string, transitionID string) (tasks.Task, error) {
+	if err := p.client.transitionIssue(taskID, transitionID); err != nil {
+		return tasks.Task{}, err
+	}
+	iss, err := p.client.getIssue(taskID)
+	if err != nil {
+		return tasks.Task{}, err
+	}
+	return mapIssue(*iss, p.cfg.BaseURL), nil
+}
+
 // Create satisfies tasks.Creator. It creates a new issue (or subtask when
 // input.ParentID is non-empty) via POST /rest/api/3/issue and returns the
 // canonical Task populated from the resulting issue key.
@@ -260,6 +291,56 @@ func (c *client) getIssue(key string) (*issue, error) {
 		return nil, fmt.Errorf("decoding issue response: %w", err)
 	}
 	return &iss, nil
+}
+
+type transitionsResponse struct {
+	Transitions []transitionItem `json:"transitions"`
+}
+
+type transitionItem struct {
+	ID   string              `json:"id"`
+	Name string              `json:"name"`
+	To   transitionTargetStatus `json:"to"`
+}
+
+type transitionTargetStatus struct {
+	StatusCategory statusCategory `json:"statusCategory"`
+}
+
+func (c *client) getTransitions(key string) (*transitionsResponse, error) {
+	resp, err := c.get("/rest/api/3/issue/" + key + "/transitions")
+	if err != nil {
+		return nil, fmt.Errorf("jira get transitions %s: %w", key, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("jira get transitions %s returned HTTP %d: %s", key, resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+
+	var tr transitionsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
+		return nil, fmt.Errorf("decoding transitions response: %w", err)
+	}
+	return &tr, nil
+}
+
+func (c *client) transitionIssue(key, transitionID string) error {
+	body := map[string]interface{}{
+		"transition": map[string]string{"id": transitionID},
+	}
+	resp, err := c.post("/rest/api/3/issue/"+key+"/transitions", body)
+	if err != nil {
+		return fmt.Errorf("jira transition %s: %w", key, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("jira transition %s returned HTTP %d: %s", key, resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return nil
 }
 
 

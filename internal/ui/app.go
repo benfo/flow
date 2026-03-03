@@ -24,6 +24,7 @@ const (
 	viewBranch  viewState = iota
 	viewEdit    viewState = iota
 	viewCreate  viewState = iota
+	viewStatus  viewState = iota
 	viewError   viewState = iota
 )
 
@@ -55,6 +56,18 @@ type subtasksLoadedMsg struct {
 	err   error
 }
 
+// transitionsLoadedMsg carries the result of an async transitions fetch.
+type transitionsLoadedMsg struct {
+	transitions []tasks.StatusTransition
+	err         error
+}
+
+// taskTransitionedMsg carries the result of an async status transition.
+type taskTransitionedMsg struct {
+	task tasks.Task
+	err  error
+}
+
 // detailFocusArea identifies which region of the detail view has keyboard focus.
 type detailFocusArea int
 
@@ -81,6 +94,8 @@ type Model struct {
 	subtasks      []tasks.Task    // subtasks for the currently selected task
 	subtaskCursor int             // selected row in the subtask mini-list
 	detailFocus   detailFocusArea // which region of detail view has focus
+	statusModel   TaskStatusModel // picker for workflow transitions
+	statusLoading bool            // true while transitions are being fetched
 	statusMessage string          // transient feedback shown in the footer
 	loadErr       string          // shown in viewError
 	width         int
@@ -157,6 +172,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSubtasksLoaded(loaded)
 	}
 
+	// Handle async transitions fetch result.
+	if loaded, ok := msg.(transitionsLoadedMsg); ok {
+		return m.handleTransitionsLoaded(loaded)
+	}
+
+	// Handle async task transition result.
+	if transitioned, ok := msg.(taskTransitionedMsg); ok {
+		return m.handleTaskTransitioned(transitioned)
+	}
+
 	// Keep the spinner ticking while loading.
 	if m.state == viewLoading {
 		var cmd tea.Cmd
@@ -175,6 +200,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateEditView(msg)
 	case viewCreate:
 		return m.updateCreateView(msg)
+	case viewStatus:
+		return m.updateStatusView(msg)
 	case viewError:
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
@@ -226,6 +253,8 @@ func (m Model) View() string {
 		return m.renderEditView()
 	case viewCreate:
 		return m.renderCreateView()
+	case viewStatus:
+		return m.renderStatusView()
 	case viewError:
 		return m.renderErrorView()
 	}
@@ -257,6 +286,9 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	m.createModel.width = msg.Width
 	m.createModel.height = msg.Height
 	m.createModel.applyWidths()
+
+	m.statusModel.width = msg.Width
+	m.statusModel.height = msg.Height
 
 	return m
 }
@@ -390,6 +422,8 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.openBranchView()
 		case "e":
 			return m.openEditView()
+		case "s":
+			return m.openStatusView()
 		case "n":
 			return m.openCreateView(m.selectedTask)
 		case "tab":
@@ -484,6 +518,9 @@ func (m Model) renderDetailView() string {
 	}
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
 		footerText += "   n  new subtask"
+	}
+	if _, canStatus := m.provider.(tasks.StatusUpdater); canStatus {
+		footerText += "   s  change status"
 	}
 	if len(m.subtasks) > 0 {
 		footerText += "   tab  focus subtasks"
@@ -863,8 +900,143 @@ func (m Model) renderCreateView() string {
 	)
 }
 
-func renderHeaderBar(title string, width int) string {
-	return appHeaderStyle.Width(width).Render(title)
+// ── Status view ───────────────────────────────────────────────────────────────
+
+func (m Model) openStatusView() (tea.Model, tea.Cmd) {
+	if m.selectedTask == nil {
+		return m, nil
+	}
+	updater, ok := m.provider.(tasks.StatusUpdater)
+	if !ok {
+		m.statusMessage = "✗  This provider does not support status changes"
+		return m, nil
+	}
+	m.statusLoading = true
+	m.statusMessage = ""
+	m.state = viewStatus
+	return m, tea.Batch(m.spinner.Tick, loadTransitionsCmd(updater, m.selectedTask.ID))
+}
+
+func loadTransitionsCmd(u tasks.StatusUpdater, taskID string) tea.Cmd {
+	return func() tea.Msg {
+		ts, err := u.GetTransitions(taskID)
+		return transitionsLoadedMsg{transitions: ts, err: err}
+	}
+}
+
+func transitionTaskCmd(u tasks.StatusUpdater, taskID, transitionID string) tea.Cmd {
+	return func() tea.Msg {
+		t, err := u.TransitionTask(taskID, transitionID)
+		return taskTransitionedMsg{task: t, err: err}
+	}
+}
+
+func (m Model) handleTransitionsLoaded(msg transitionsLoadedMsg) (tea.Model, tea.Cmd) {
+	m.statusLoading = false
+	if msg.err != nil {
+		m.statusMessage = "✗  " + msg.err.Error()
+		m.state = viewDetail
+		return m, nil
+	}
+	sm := NewTaskStatusModel(msg.transitions)
+	sm.width = m.width
+	sm.height = m.height
+	m.statusModel = sm
+	return m, nil
+}
+
+func (m Model) handleTaskTransitioned(msg taskTransitionedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMessage = "✗  " + msg.err.Error()
+		m.state = viewDetail
+		return m, nil
+	}
+
+	// Update the task in local state.
+	for i := range m.tasks {
+		if m.tasks[i].ID == msg.task.ID {
+			m.tasks[i] = msg.task
+			m.selectedTask = &m.tasks[i]
+			break
+		}
+	}
+	// Also update subtasks if the transitioned task was a subtask.
+	for i := range m.subtasks {
+		if m.subtasks[i].ID == msg.task.ID {
+			m.subtasks[i] = msg.task
+			break
+		}
+	}
+	items := make([]list.Item, len(m.tasks))
+	for i, t := range m.tasks {
+		items[i] = taskItem{task: t}
+	}
+	m.list.SetItems(items)
+	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width))
+
+	m.statusMessage = "✓  Status changed to: " + msg.task.Status.String()
+	m.state = viewDetail
+	return m, nil
+}
+
+func (m Model) updateStatusView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Keep spinner ticking while loading transitions.
+	if m.statusLoading {
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			m.state = viewDetail
+			return m, nil
+		case "up", "k":
+			m.statusModel = m.statusModel.MoveUp()
+		case "down", "j":
+			m.statusModel = m.statusModel.MoveDown()
+		case "enter":
+			tr, ok := m.statusModel.Selected()
+			if !ok {
+				return m, nil
+			}
+			updater := m.provider.(tasks.StatusUpdater)
+			m.statusLoading = true
+			return m, tea.Batch(m.spinner.Tick, transitionTaskCmd(updater, m.selectedTask.ID, tr.ID))
+		}
+	}
+	return m, nil
+}
+
+func (m Model) renderStatusView() string {
+	if m.selectedTask == nil {
+		return ""
+	}
+	sep := renderSeparator(m.width)
+	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  change status", m.width)
+	footer := renderFooterBar("↑/↓  navigate   enter  confirm   esc  cancel", m.width)
+
+	var content string
+	if m.statusLoading {
+		content = lipgloss.NewStyle().Padding(2, 2).Foreground(colorText).
+			Render(m.spinner.View() + "  Loading…")
+	} else {
+		content = m.statusModel.View()
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		sep,
+		content,
+		sep,
+		footer,
+	)
+}
+
+func renderHeaderBar(title string, width int) string {	return appHeaderStyle.Width(width).Render(title)
 }
 
 func renderFooterBar(help string, width int) string {

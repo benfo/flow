@@ -91,6 +91,56 @@ func (m *MockProvider) GetSubtasks(parentID string) ([]Task, error) {
 	return out, nil
 }
 
+// GetTransitions satisfies StatusUpdater. It returns all statuses except the
+// task's current one, since the mock has no workflow constraints.
+func (m *MockProvider) GetTransitions(taskID string) ([]StatusTransition, error) {
+	current := StatusTodo
+	for _, t := range m.tasks {
+		if t.ID == taskID {
+			current = t.Status
+			break
+		}
+	}
+	all := []Status{StatusTodo, StatusInProgress, StatusInReview, StatusDone}
+	var out []StatusTransition
+	for _, s := range all {
+		if s == current {
+			continue
+		}
+		out = append(out, StatusTransition{
+			ID:   fmt.Sprintf("%d", int(s)),
+			Name: s.String(),
+			To:   s,
+		})
+	}
+	return out, nil
+}
+
+// TransitionTask satisfies StatusUpdater. It updates the task's status
+// in-memory and returns the updated Task.
+func (m *MockProvider) TransitionTask(taskID string, transitionID string) (Task, error) {
+	var newStatus Status
+	switch transitionID {
+	case "0":
+		newStatus = StatusTodo
+	case "1":
+		newStatus = StatusInProgress
+	case "2":
+		newStatus = StatusInReview
+	case "3":
+		newStatus = StatusDone
+	default:
+		return Task{}, fmt.Errorf("unknown transition ID %q", transitionID)
+	}
+	for i, t := range m.tasks {
+		if t.ID == taskID {
+			m.tasks[i].Status = newStatus
+			return m.tasks[i], nil
+		}
+	}
+	return Task{}, fmt.Errorf("task %s not found", taskID)
+}
+
 // seedTasks returns the initial set of mock tasks, including a few subtasks
 // under FLOW-001 to demonstrate the subtask feature in the UI.
 func seedTasks() []Task {
