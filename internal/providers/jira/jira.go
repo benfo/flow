@@ -27,9 +27,10 @@ const (
 
 // Provider fetches Jira issues assigned to the authenticated user.
 type Provider struct {
-	client    *client
-	cfg       *config.JiraConfig
-	accountID string // cached from /myself on first create
+	client           *client
+	cfg              *config.JiraConfig
+	accountID        string            // cached from /myself on first create
+	subtaskTypeCache map[string]string // project key → subtask issue type name
 }
 
 // New creates a Provider using the token from the OS keychain.
@@ -190,7 +191,7 @@ func (p *Provider) Create(input tasks.CreateInput) (tasks.Task, error) {
 	}
 
 	if input.ParentID != "" {
-		fields["issuetype"] = map[string]string{"name": "Subtask"}
+		fields["issuetype"] = map[string]string{"name": p.subtaskTypeName(projectKey)}
 		fields["parent"] = map[string]string{"key": input.ParentID}
 	} else {
 		fields["issuetype"] = map[string]string{"name": "Task"}
@@ -342,6 +343,57 @@ func (c *client) getIssue(key string) (*issue, error) {
 		return nil, fmt.Errorf("decoding issue response: %w", err)
 	}
 	return &iss, nil
+}
+
+type issueTypesResponse struct {
+	IssueTypes []issueTypeItem `json:"issueTypes"`
+}
+
+type issueTypeItem struct {
+	Name    string `json:"name"`
+	Subtask bool   `json:"subtask"`
+}
+
+func (c *client) getProjectIssueTypes(projectKey string) (*issueTypesResponse, error) {
+	path := fmt.Sprintf("/rest/api/3/issue/createmeta/%s/issuetypes", projectKey)
+	resp, err := c.get(path)
+	if err != nil {
+		return nil, fmt.Errorf("jira get issue types: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("jira get issue types returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var itr issueTypesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&itr); err != nil {
+		return nil, fmt.Errorf("decoding issue types response: %w", err)
+	}
+	return &itr, nil
+}
+
+// subtaskTypeName returns the name of the subtask issue type for projectKey.
+// It queries the project's issue types once and caches the result.
+// Falls back to "Subtask" if the lookup fails.
+func (p *Provider) subtaskTypeName(projectKey string) string {
+	if p.subtaskTypeCache == nil {
+		p.subtaskTypeCache = make(map[string]string)
+	}
+	if name, ok := p.subtaskTypeCache[projectKey]; ok {
+		return name
+	}
+	itr, err := p.client.getProjectIssueTypes(projectKey)
+	if err == nil {
+		for _, it := range itr.IssueTypes {
+			if it.Subtask {
+				p.subtaskTypeCache[projectKey] = it.Name
+				return it.Name
+			}
+		}
+	}
+	// Fallback: common names to try
+	p.subtaskTypeCache[projectKey] = "Subtask"
+	return "Subtask"
 }
 
 type transitionsResponse struct {
