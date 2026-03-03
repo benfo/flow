@@ -201,7 +201,7 @@ func (m Model) renderStatusView() string {
 	}
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  change status", m.width)
-	footer := renderFooterBar("↑/↓  navigate   enter  confirm   esc  cancel", m.width)
+	footer := renderFooterBar("enter  apply   esc  cancel", m.width)
 
 	var content string
 	if m.statusLoading {

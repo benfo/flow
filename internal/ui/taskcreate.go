@@ -530,7 +530,7 @@ func (m Model) renderCreateView() string {
 
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar(breadcrumb, m.width)
-	footer := renderFooterBar(fitHints([]string{"tab  next", "shift+tab  prev", "◀/▶  priority", "space  assign", "ctrl+s  save", "esc  discard"}, "   ", m.width-2), m.width)
+	footer := renderFooterBar(fitHints([]string{"ctrl+s  save", "esc  discard"}, "   ", m.width-2), m.width)
 	if m.createModel.confirming {
 		footer = renderFooterBar("Discard changes?   y  yes   n / esc  keep editing", m.width)
 	}

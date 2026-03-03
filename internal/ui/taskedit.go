@@ -305,7 +305,7 @@ func (m Model) renderEditView() string {
 	}
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  edit", m.width)
-	footer := renderFooterBar("tab  switch field   ctrl+s  save   esc  discard", m.width)
+	footer := renderFooterBar("ctrl+s  save   esc  discard", m.width)
 	if m.editModel.confirming {
 		footer = renderFooterBar("Discard changes?   y  yes   n / esc  keep editing", m.width)
 	}

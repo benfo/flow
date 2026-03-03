@@ -513,7 +513,7 @@ func (m Model) renderCommentsView() string {
 	case commentModeDelete:
 		footer = renderFooterBar("Delete this comment?   y  yes   n / esc  cancel", m.width)
 	default:
-		commentHints := []string{"esc  back", "↑/↓  navigate"}
+		commentHints := []string{"esc  back"}
 		if _, ok := m.provider.(tasks.CommentAdder); ok {
 			commentHints = append(commentHints, "n  new")
 		}
@@ -521,8 +521,9 @@ func (m Model) renderCommentsView() string {
 			commentHints = append(commentHints, "e  edit")
 		}
 		if _, ok := m.provider.(tasks.CommentDeleter); ok {
-			commentHints = append(commentHints, "d  delete")
+			commentHints = append(commentHints, "D  delete")
 		}
+		commentHints = append(commentHints, "?  help")
 		footer = renderFooterBar(fitHints(commentHints, "   ", m.width-2), m.width)
 	}
 

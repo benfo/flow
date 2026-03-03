@@ -159,11 +159,13 @@ func (m Model) renderListView() string {
 	header := renderHeaderBar("⚡ flow", m.width)
 	sep := renderSeparator(m.width)
 
-	hints := []string{"↑/↓  navigate", "enter  open", "y  copy", "/  filter", "esc  clear filter", "r  refresh", "f  find"}
+	// Primary hints: the 4 most contextual actions + help. Navigation keys
+	// (↑/↓, /, esc) are omitted — users learn them quickly.
+	hints := []string{"enter  open", "y  copy", "f  find"}
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
 		hints = append(hints, "n  new")
 	}
-	hints = append(hints, "T  theme", "?  help", "q  quit")
+	hints = append(hints, "?  help")
 	footer := renderFooterBar(fitHints(hints, "   ", m.width-2), m.width)
 
 	var content string

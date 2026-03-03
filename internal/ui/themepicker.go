@@ -96,7 +96,7 @@ func (m Model) renderThemeView() string {
 		sb.WriteString("\n")
 	}
 
-	hints := []string{"↑/↓  navigate", "enter  save", "esc  cancel"}
+	hints := []string{"enter  save", "esc  cancel"}
 	footer := renderFooterBar(fitHints(hints, "   ", m.width-2), m.width)
 
 	content := lipgloss.NewStyle().

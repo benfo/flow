@@ -253,7 +253,7 @@ func (m Model) renderSearchView() string {
 	if m.searchLoading {
 		footerText = "searching…"
 	} else {
-		footerText = "enter  search/open   ↑/↓  navigate results   pgup/pgdn  page   esc  back"
+		footerText = "enter  open   esc  back"
 	}
 	footer := renderFooterBar(footerText, m.width)
 

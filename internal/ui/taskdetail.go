@@ -384,32 +384,22 @@ func (m Model) renderDetailView() string {
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  "+id, m.width)
 
-	hints := []string{"esc  back", "↑/↓  scroll", "o  open", "y  copy", "b  branch"}
+	// Show the 4 most relevant actions for this task + help.
+	// Navigation (↑/↓, esc) and less-used keys live in the ? overlay.
+	var hints []string
 	if _, canEdit := m.provider.(tasks.Updater); canEdit {
 		hints = append(hints, "e  edit")
-	}
-	if _, canCreate := m.provider.(tasks.Creator); canCreate {
-		hints = append(hints, "n  subtask")
 	}
 	if _, canStatus := m.provider.(tasks.StatusUpdater); canStatus {
 		hints = append(hints, "s  status")
 	}
-	if _, canAssign := m.provider.(tasks.SelfAssigner); canAssign {
-		hints = append(hints, "a  assign")
-	}
 	if _, canComment := m.provider.(tasks.CommentLister); canComment {
 		hints = append(hints, "c  comments")
 	}
-	if _, canDelete := m.provider.(tasks.TaskDeleter); canDelete {
-		hints = append(hints, "D  delete")
+	if _, canCreate := m.provider.(tasks.Creator); canCreate {
+		hints = append(hints, "n  subtask")
 	}
-	if len(m.subtasks) > 0 {
-		hints = append(hints, "tab  subtasks")
-	}
-	if m.selectedTask != nil && m.selectedTask.ParentID != "" {
-		hints = append(hints, "p  parent")
-	}
-	hints = append(hints, "?  help", "q  quit")
+	hints = append(hints, "y  copy", "b  branch", "?  help")
 
 	var footerText string
 	if m.confirmingDelete && m.selectedTask != nil {
