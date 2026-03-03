@@ -51,6 +51,7 @@ var helpSections = []helpSection{
 			{"o", "open task URL in browser"},
 			{"y", "copy task URL (or ID) to clipboard"},
 			{"b", "create or checkout git branch"},
+			{"P", "open pull request in browser (active branch only)"},
 			{"e", "edit task"},
 			{"n", "create subtask"},
 			{"s", "change status"},

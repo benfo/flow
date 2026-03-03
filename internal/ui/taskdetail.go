@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/atotto/clipboard"
+	igit "github.com/benfo/flow/internal/git"
 	"github.com/benfo/flow/internal/tasks"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -43,6 +44,33 @@ type clipboardCopyMsg struct{ err error }
 func copyToClipboardCmd(text string) tea.Cmd {
 	return func() tea.Msg {
 		return clipboardCopyMsg{err: clipboard.WriteAll(text)}
+	}
+}
+
+// openPRCmd builds the PR creation URL for the given branch and opens it in
+// the system browser. It reads the "origin" remote URL via git, then maps the
+// host to the correct GitHub / GitLab / Bitbucket compare path.
+func openPRCmd(branch string) tea.Cmd {
+	return func() tea.Msg {
+		remoteURL, err := igit.RemoteURL("origin")
+		if err != nil {
+			return prOpenedMsg{err: err}
+		}
+		prURL, err := igit.PRCreateURL(remoteURL, branch)
+		if err != nil {
+			return prOpenedMsg{err: err}
+		}
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			cmd = exec.Command("open", prURL)
+		case "windows":
+			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", prURL)
+		default:
+			cmd = exec.Command("xdg-open", prURL)
+		}
+		_ = cmd.Start()
+		return prOpenedMsg{}
 	}
 }
 
@@ -250,6 +278,13 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "b":
 			return m.openBranchView()
+		case "P":
+			if m.selectedTask != nil {
+				if branch := m.branchForTask(m.selectedTask.ID); branch != "" {
+					return m, openPRCmd(branch)
+				}
+				m.statusMessage = "✗  No active branch for this task"
+			}
 		case "e":
 			return m.openEditView()
 		case "f":
@@ -401,7 +436,11 @@ func (m Model) renderDetailView() string {
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
 		hints = append(hints, "n  subtask")
 	}
-	hints = append(hints, "y  copy", "b  branch", "?  help")
+	hints = append(hints, "y  copy", "b  branch")
+	if m.selectedTask != nil && m.branchForTask(m.selectedTask.ID) != "" {
+		hints = append(hints, "P  open PR")
+	}
+	hints = append(hints, "?  help")
 
 	var footerText string
 	if m.confirmingDelete && m.selectedTask != nil {

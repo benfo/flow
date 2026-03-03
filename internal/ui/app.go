@@ -107,6 +107,11 @@ type parentTaskLoadedMsg struct {
 	err  error
 }
 
+// prOpenedMsg carries the result of attempting to open a PR URL in the browser.
+type prOpenedMsg struct {
+	err error
+}
+
 // themeSavedMsg carries the result of saving the theme to the global config.
 type themeSavedMsg struct {
 	err error
@@ -321,6 +326,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// No In Progress transition available — silently skip.
+		return m, nil
+	}
+
+	// Handle PR open result.
+	if pr, ok := msg.(prOpenedMsg); ok {
+		if pr.err != nil {
+			m.statusMessage = "✗  " + pr.err.Error()
+		}
 		return m, nil
 	}
 
