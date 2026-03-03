@@ -468,12 +468,12 @@ func (m Model) renderListView() string {
 	header := renderHeaderBar("⚡ flow", m.width)
 	sep := renderSeparator(m.width)
 
-	footerText := "↑/↓  navigate   enter  open   /  filter   esc  clear filter   r  refresh   f  find"
+	hints := []string{"↑/↓  navigate", "enter  open", "/  filter", "esc  clear filter", "r  refresh", "f  find"}
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
-		footerText += "   n  new"
+		hints = append(hints, "n  new")
 	}
-	footerText += "   q  quit"
-	footer := renderFooterBar(footerText, m.width)
+	hints = append(hints, "q  quit")
+	footer := renderFooterBar(fitHints(hints, "   ", m.width-2), m.width)
 
 	var content string
 	if len(m.list.VisibleItems()) == 0 && m.list.FilterState() == list.FilterApplied {
@@ -626,33 +626,37 @@ func (m Model) renderDetailView() string {
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  "+id, m.width)
 
-	footerText := "esc  back   ↑/↓  scroll   o  open in browser   b  create branch"
+	hints := []string{"esc  back", "↑/↓  scroll", "o  open", "b  branch"}
 	if _, canEdit := m.provider.(tasks.Updater); canEdit {
-		footerText += "   e  edit"
+		hints = append(hints, "e  edit")
 	}
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
-		footerText += "   n  new subtask"
+		hints = append(hints, "n  subtask")
 	}
 	if _, canStatus := m.provider.(tasks.StatusUpdater); canStatus {
-		footerText += "   s  change status"
+		hints = append(hints, "s  status")
 	}
 	if _, canAssign := m.provider.(tasks.SelfAssigner); canAssign {
-		footerText += "   a  assign to me"
+		hints = append(hints, "a  assign")
 	}
 	if _, canComment := m.provider.(tasks.CommentLister); canComment {
-		footerText += "   c  comments"
+		hints = append(hints, "c  comments")
 	}
 	if _, canDelete := m.provider.(tasks.TaskDeleter); canDelete {
-		footerText += "   D  delete"
+		hints = append(hints, "D  delete")
 	}
 	if len(m.subtasks) > 0 {
-		footerText += "   tab  focus subtasks"
+		hints = append(hints, "tab  subtasks")
 	}
-	footerText += "   q  quit"
+	hints = append(hints, "q  quit")
+
+	var footerText string
 	if m.confirmingDelete && m.selectedTask != nil {
 		footerText = renderDeleteConfirm(m.selectedTask.ID)
 	} else if m.statusMessage != "" {
 		footerText = m.statusMessage
+	} else {
+		footerText = fitHints(hints, "   ", m.width-2)
 	}
 	footer := renderFooterBar(footerText, m.width)
 
@@ -1123,7 +1127,7 @@ func (m Model) renderCreateView() string {
 
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar(breadcrumb, m.width)
-	footer := renderFooterBar("tab  next field   shift+tab  prev field   ◀/▶  priority   space  toggle assign   ctrl+s  save   esc  discard", m.width)
+	footer := renderFooterBar(fitHints([]string{"tab  next", "shift+tab  prev", "◀/▶  priority", "space  assign", "ctrl+s  save", "esc  discard"}, "   ", m.width-2), m.width)
 	if m.createModel.confirming {
 		footer = renderFooterBar("Discard changes?   y  yes   n / esc  keep editing", m.width)
 	}
@@ -1672,17 +1676,17 @@ func (m Model) renderCommentsView() string {
 	case commentModeDelete:
 		footer = renderFooterBar("Delete this comment?   y  yes   n / esc  cancel", m.width)
 	default:
-		hints := "esc  back   ↑/↓  navigate"
+		commentHints := []string{"esc  back", "↑/↓  navigate"}
 		if _, ok := m.provider.(tasks.CommentAdder); ok {
-			hints += "   n  new comment"
+			commentHints = append(commentHints, "n  new")
 		}
 		if _, ok := m.provider.(tasks.CommentEditor); ok {
-			hints += "   e  edit"
+			commentHints = append(commentHints, "e  edit")
 		}
 		if _, ok := m.provider.(tasks.CommentDeleter); ok {
-			hints += "   d  delete"
+			commentHints = append(commentHints, "d  delete")
 		}
-		footer = renderFooterBar(hints, m.width)
+		footer = renderFooterBar(fitHints(commentHints, "   ", m.width-2), m.width)
 	}
 
 	content := m.commentsModel.View()

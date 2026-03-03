@@ -3,6 +3,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/ben-fourie/flow-cli/internal/tasks"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -146,6 +148,33 @@ func renderDeleteConfirm(taskID string) string {
 	return lipgloss.NewStyle().Padding(0, 2).Render(
 		label + "   " + yes + hint + no + hintNo,
 	)
+}
+
+
+// fitHints joins hints with sep, greedily including as many as fit within
+// maxWidth visible characters. If any hints are dropped a "…" is appended.
+// sep is the separator between hints (e.g. "   ").
+// This keeps the footer to a single line on any terminal width.
+func fitHints(hints []string, sep string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	var fitted []string
+	used := 0
+	sepLen := len(sep)
+	for i, h := range hints {
+		extra := len(h)
+		if i > 0 {
+			extra += sepLen
+		}
+		if used+extra > maxWidth {
+			fitted = append(fitted, "…")
+			break
+		}
+		fitted = append(fitted, h)
+		used += extra
+	}
+	return strings.Join(fitted, sep)
 }
 
 
