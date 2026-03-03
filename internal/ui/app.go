@@ -1160,6 +1160,26 @@ func (m Model) updateSearchView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchModel = m.searchModel.MoveDown()
 			}
 			return m, nil
+		case "ctrl+d", "pgdown":
+			if m.searchModel.focus == searchFocusResults {
+				m.searchModel = m.searchModel.PageDown()
+			}
+			return m, nil
+		case "ctrl+u", "pgup":
+			if m.searchModel.focus == searchFocusResults {
+				m.searchModel = m.searchModel.PageUp()
+			}
+			return m, nil
+		case "g":
+			if m.searchModel.focus == searchFocusResults {
+				m.searchModel = m.searchModel.JumpToTop()
+			}
+			return m, nil
+		case "G":
+			if m.searchModel.focus == searchFocusResults {
+				m.searchModel = m.searchModel.JumpToBottom()
+			}
+			return m, nil
 		}
 	}
 
@@ -1178,7 +1198,7 @@ func (m Model) renderSearchView() string {
 	case m.searchLoading:
 		footerText = "searching…"
 	case m.searchModel.focus == searchFocusResults:
-		footerText = "↑/↓  navigate   ↑  back to input   enter  open   esc  back"
+		footerText = "↑/↓  navigate   ctrl+d/u  page   g/G  top/bottom   enter  open   esc  back"
 	default:
 		footerText = "enter  search   ↓  into results   esc  back"
 	}

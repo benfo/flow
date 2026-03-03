@@ -74,6 +74,38 @@ func (m TaskSearchModel) MoveDown() TaskSearchModel {
 	return m
 }
 
+func (m TaskSearchModel) PageDown() TaskSearchModel {
+	pageSize := m.pageSize()
+	m.cursor = min(m.cursor+pageSize, len(m.results)-1)
+	return m
+}
+
+func (m TaskSearchModel) PageUp() TaskSearchModel {
+	pageSize := m.pageSize()
+	m.cursor = max(m.cursor-pageSize, 0)
+	return m
+}
+
+func (m TaskSearchModel) JumpToTop() TaskSearchModel {
+	m.cursor = 0
+	return m
+}
+
+func (m TaskSearchModel) JumpToBottom() TaskSearchModel {
+	if len(m.results) > 0 {
+		m.cursor = len(m.results) - 1
+	}
+	return m
+}
+
+func (m TaskSearchModel) pageSize() int {
+	ps := m.height - 10
+	if ps < 1 {
+		ps = 5
+	}
+	return ps
+}
+
 func (m TaskSearchModel) FocusInput() TaskSearchModel {
 	m.focus = searchFocusInput
 	m.input.Focus()
@@ -105,10 +137,7 @@ func (m TaskSearchModel) View() string {
 
 	// Result rows — sliding window that keeps the cursor visible.
 	focused := m.focus == searchFocusResults
-	maxVisible := m.height - 10 // leave room for header/footer/input
-	if maxVisible < 1 {
-		maxVisible = 5
-	}
+	maxVisible := m.pageSize()
 
 	// Compute the start index so the cursor is always within the window.
 	start := 0
