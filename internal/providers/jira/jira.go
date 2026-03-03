@@ -184,7 +184,7 @@ type issueProject struct {
 
 func (c *client) search(jql string, maxResults int) (*searchResponse, error) {
 	path := fmt.Sprintf(
-		"/rest/api/3/search?jql=%s&maxResults=%d&fields=summary,description,status,priority,assignee,labels,project",
+		"/rest/api/3/search/jql?jql=%s&maxResults=%d&fields=summary,description,status,priority,assignee,labels,project",
 		url.QueryEscape(jql),
 		maxResults,
 	)
