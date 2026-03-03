@@ -112,7 +112,8 @@ type Model struct {
 	searchModel       TaskSearchModel
 	searchLoading     bool      // true while search is in flight
 	searchReturnState viewState // view to return to when search is dismissed
-	detailReturnState viewState // view to return to when detail is dismissed
+	detailReturnState viewState  // view to return to when detail is dismissed
+	detailReturnTask  *tasks.Task // parent task to restore when returning to viewDetail
 	statusMessage string          // transient feedback shown in the footer
 	loadErr       string          // shown in viewError
 	width         int
@@ -452,6 +453,10 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "esc", "backspace":
 			m.state = m.detailReturnState
+			if m.detailReturnState == viewDetail && m.detailReturnTask != nil {
+				m.selectedTask = m.detailReturnTask
+				m.detailReturnTask = nil
+			}
 			return m, nil
 		case "o":
 			if m.selectedTask != nil && m.selectedTask.URL != "" {
@@ -510,6 +515,7 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // openSubtaskDetail opens a subtask's detail view (same view, different task).
 func (m Model) openSubtaskDetail(t tasks.Task) (tea.Model, tea.Cmd) {
+	m.detailReturnTask = m.selectedTask // remember parent to restore on esc
 	m.subtasks = nil
 	m.subtaskCursor = 0
 	return m.openDetailForTask(t, viewDetail)
