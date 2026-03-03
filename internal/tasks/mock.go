@@ -1,6 +1,9 @@
 package tasks
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // MockProvider returns a realistic set of tasks for development and UI testing.
 // It holds mutable state so edits made via Update() are reflected in subsequent
@@ -89,6 +92,32 @@ func (m *MockProvider) GetSubtasks(parentID string) ([]Task, error) {
 		}
 	}
 	return out, nil
+}
+
+// Search satisfies Searcher. It returns all tasks whose ID, Title, or
+// Description contains the query string (case-insensitive).
+func (m *MockProvider) Search(query string) ([]Task, error) {
+	q := strings.ToLower(query)
+	var out []Task
+	for _, t := range m.tasks {
+		if strings.Contains(strings.ToLower(t.ID), q) ||
+			strings.Contains(strings.ToLower(t.Title), q) ||
+			strings.Contains(strings.ToLower(t.Description), q) {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+// AssignToSelf satisfies SelfAssigner. It sets the task's assignee to "you".
+func (m *MockProvider) AssignToSelf(taskID string) (Task, error) {
+	for i, t := range m.tasks {
+		if t.ID == taskID {
+			m.tasks[i].Assignee = "you"
+			return m.tasks[i], nil
+		}
+	}
+	return Task{}, fmt.Errorf("task %s not found", taskID)
 }
 
 // GetTransitions satisfies StatusUpdater. It returns all statuses except the

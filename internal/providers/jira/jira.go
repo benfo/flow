@@ -120,6 +120,44 @@ func (p *Provider) TransitionTask(taskID string, transitionID string) (tasks.Tas
 	return mapIssue(*iss, p.cfg.BaseURL), nil
 }
 
+// Search satisfies tasks.Searcher. It runs a full-text JQL search so the user
+// can find issues not assigned to them.
+func (p *Provider) Search(query string) ([]tasks.Task, error) {
+	jql := fmt.Sprintf(`text ~ %q ORDER BY updated DESC`, query)
+	if len(p.cfg.Projects) > 0 {
+		quoted := make([]string, len(p.cfg.Projects))
+		for i, proj := range p.cfg.Projects {
+			quoted[i] = `"` + proj + `"`
+		}
+		jql = "project IN (" + strings.Join(quoted, ", ") + ") AND " + jql
+	}
+	resp, err := p.client.search(jql, maxResults)
+	if err != nil {
+		return nil, fmt.Errorf("jira search: %w", err)
+	}
+	return mapIssues(resp.Issues, p.cfg.BaseURL), nil
+}
+
+// AssignToSelf satisfies tasks.SelfAssigner. It assigns the issue to the
+// currently authenticated user and returns the updated Task.
+func (p *Provider) AssignToSelf(taskID string) (tasks.Task, error) {
+	if p.accountID == "" {
+		me, err := p.client.Myself()
+		if err != nil {
+			return tasks.Task{}, fmt.Errorf("could not determine current user: %w", err)
+		}
+		p.accountID = me.AccountId
+	}
+	if err := p.client.assignIssue(taskID, p.accountID); err != nil {
+		return tasks.Task{}, err
+	}
+	iss, err := p.client.getIssue(taskID)
+	if err != nil {
+		return tasks.Task{}, err
+	}
+	return mapIssue(*iss, p.cfg.BaseURL), nil
+}
+
 // Create satisfies tasks.Creator. It creates a new issue (or subtask when
 // input.ParentID is non-empty) via POST /rest/api/3/issue and returns the
 // canonical Task populated from the resulting issue key.
@@ -354,6 +392,25 @@ func (c *client) transitionIssue(key, transitionID string) error {
 	return nil
 }
 
+
+func (c *client) assignIssue(key, accountID string) error {
+	body := map[string]interface{}{
+		"fields": map[string]interface{}{
+			"assignee": map[string]string{"accountId": accountID},
+		},
+	}
+	resp, err := c.put("/rest/api/3/issue/"+key, body)
+	if err != nil {
+		return fmt.Errorf("jira assign %s: %w", key, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("jira assign %s returned HTTP %d: %s", key, resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
 
 func (c *client) updateIssue(key, summary, description string) error {
 	body := map[string]interface{}{

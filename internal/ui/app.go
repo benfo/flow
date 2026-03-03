@@ -24,6 +24,7 @@ const (
 	viewBranch  viewState = iota
 	viewEdit    viewState = iota
 	viewCreate  viewState = iota
+	viewSearch  viewState = iota
 	viewStatus  viewState = iota
 	viewError   viewState = iota
 )
@@ -68,6 +69,18 @@ type taskTransitionedMsg struct {
 	err  error
 }
 
+// searchResultsMsg carries the result of an async task search.
+type searchResultsMsg struct {
+	tasks []tasks.Task
+	err   error
+}
+
+// selfAssignedMsg carries the result of an async self-assign operation.
+type selfAssignedMsg struct {
+	task tasks.Task
+	err  error
+}
+
 // detailFocusArea identifies which region of the detail view has keyboard focus.
 type detailFocusArea int
 
@@ -96,6 +109,9 @@ type Model struct {
 	detailFocus   detailFocusArea // which region of detail view has focus
 	statusModel   TaskStatusModel // picker for workflow transitions
 	statusLoading bool            // true while transitions are being fetched
+	searchModel       TaskSearchModel
+	searchLoading     bool      // true while search is in flight
+	searchReturnState viewState // view to return to when search is dismissed
 	statusMessage string          // transient feedback shown in the footer
 	loadErr       string          // shown in viewError
 	width         int
@@ -182,6 +198,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTaskTransitioned(transitioned)
 	}
 
+	// Handle async search result.
+	if results, ok := msg.(searchResultsMsg); ok {
+		return m.handleSearchResults(results)
+	}
+
+	// Handle async self-assign result.
+	if assigned, ok := msg.(selfAssignedMsg); ok {
+		return m.handleSelfAssigned(assigned)
+	}
+
 	// Keep the spinner ticking while loading.
 	if m.state == viewLoading {
 		var cmd tea.Cmd
@@ -200,6 +226,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateEditView(msg)
 	case viewCreate:
 		return m.updateCreateView(msg)
+	case viewSearch:
+		return m.updateSearchView(msg)
 	case viewStatus:
 		return m.updateStatusView(msg)
 	case viewError:
@@ -253,6 +281,8 @@ func (m Model) View() string {
 		return m.renderEditView()
 	case viewCreate:
 		return m.renderCreateView()
+	case viewSearch:
+		return m.renderSearchView()
 	case viewStatus:
 		return m.renderStatusView()
 	case viewError:
@@ -290,6 +320,9 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	m.statusModel.width = msg.Width
 	m.statusModel.height = msg.Height
 
+	m.searchModel.width = msg.Width
+	m.searchModel.height = msg.Height
+
 	return m
 }
 
@@ -305,6 +338,8 @@ func (m Model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.openDetail()
 			case "n":
 				return m.openCreateView(nil)
+			case "f":
+				return m.openSearchView()
 			case "r":
 				m.state = viewLoading
 				return m, tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider))
@@ -383,7 +418,7 @@ func (m Model) renderListView() string {
 	header := renderHeaderBar("⚡ flow", m.width)
 	sep := renderSeparator(m.width)
 
-	footerText := "↑/↓  navigate   enter  open   /  filter   esc  clear filter   r  refresh"
+	footerText := "↑/↓  navigate   enter  open   /  filter   esc  clear filter   r  refresh   f  find"
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
 		footerText += "   n  new"
 	}
@@ -424,8 +459,12 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.openBranchView()
 		case "e":
 			return m.openEditView()
+		case "f":
+			return m.openSearchView()
 		case "s":
 			return m.openStatusView()
+		case "a":
+			return m.assignToSelf()
 		case "n":
 			return m.openCreateView(m.selectedTask)
 		case "tab":
@@ -512,6 +551,9 @@ func (m Model) renderDetailView() string {
 	}
 	if _, canStatus := m.provider.(tasks.StatusUpdater); canStatus {
 		footerText += "   s  change status"
+	}
+	if _, canAssign := m.provider.(tasks.SelfAssigner); canAssign {
+		footerText += "   a  assign to me"
 	}
 	if len(m.subtasks) > 0 {
 		footerText += "   tab  focus subtasks"
@@ -1026,6 +1068,168 @@ func (m Model) renderStatusView() string {
 		sep,
 		footer,
 	)
+}
+
+// ── Search view ───────────────────────────────────────────────────────────────
+
+func (m Model) openSearchView() (tea.Model, tea.Cmd) {
+	if _, ok := m.provider.(tasks.Searcher); !ok {
+		m.statusMessage = "✗  This provider does not support search"
+		return m, nil
+	}
+	sm := NewTaskSearchModel()
+	sm.width = m.width
+	sm.height = m.height
+	sm.input.Width = m.width - 10
+	m.searchModel = sm
+	m.searchLoading = false
+	m.searchReturnState = m.state
+	m.state = viewSearch
+	m.statusMessage = ""
+	return m, textinput.Blink
+}
+
+func searchCmd(s tasks.Searcher, query string) tea.Cmd {
+	return func() tea.Msg {
+		ts, err := s.Search(query)
+		return searchResultsMsg{tasks: ts, err: err}
+	}
+}
+
+func (m Model) handleSearchResults(msg searchResultsMsg) (tea.Model, tea.Cmd) {
+	m.searchLoading = false
+	if msg.err != nil {
+		m.searchModel.input.Placeholder = "Search tasks…"
+		// Show error inline; stay in search view.
+		_ = msg.err
+		return m, nil
+	}
+	m.searchModel = m.searchModel.SetResults(msg.tasks)
+	return m, nil
+}
+
+func (m Model) updateSearchView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.searchLoading {
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			m.state = m.searchReturnState
+			return m, nil
+		case "tab":
+			if m.searchModel.focus == searchFocusInput {
+				if len(m.searchModel.results) > 0 {
+					m.searchModel = m.searchModel.SetResults(m.searchModel.results) // shifts focus
+				}
+			} else {
+				m.searchModel = m.searchModel.FocusInput()
+			}
+			return m, nil
+		case "enter":
+			if m.searchModel.focus == searchFocusInput {
+				q := m.searchModel.Query()
+				if q == "" {
+					return m, nil
+				}
+				m.searchLoading = true
+				searcher := m.provider.(tasks.Searcher)
+				return m, tea.Batch(m.spinner.Tick, searchCmd(searcher, q))
+			}
+			// Results focused — open the selected task.
+			if t, ok := m.searchModel.Selected(); ok {
+				return m.openDetailForTask(t)
+			}
+		case "up", "k":
+			if m.searchModel.focus == searchFocusResults {
+				m.searchModel = m.searchModel.MoveUp()
+				return m, nil
+			}
+		case "down", "j":
+			if m.searchModel.focus == searchFocusResults {
+				m.searchModel = m.searchModel.MoveDown()
+				return m, nil
+			}
+		}
+	}
+
+	// Delegate remaining messages to the text input.
+	var cmd tea.Cmd
+	m.searchModel.input, cmd = m.searchModel.input.Update(msg)
+	return m, cmd
+}
+
+func (m Model) renderSearchView() string {
+	sep := renderSeparator(m.width)
+	header := renderHeaderBar("⚡ flow  /  find", m.width)
+
+	footerText := "enter  search   tab  switch focus   ↑/↓  navigate results   enter  open   esc  back"
+	if m.searchLoading {
+		footerText = "searching…"
+	}
+	footer := renderFooterBar(footerText, m.width)
+
+	var content string
+	if m.searchLoading {
+		content = lipgloss.NewStyle().Padding(2, 2).Foreground(colorText).
+			Render(m.spinner.View() + "  Searching…")
+	} else {
+		content = m.searchModel.View()
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, sep, content, sep, footer)
+}
+
+// ── Assign to self ────────────────────────────────────────────────────────────
+
+func assignToSelfCmd(a tasks.SelfAssigner, taskID string) tea.Cmd {
+	return func() tea.Msg {
+		t, err := a.AssignToSelf(taskID)
+		return selfAssignedMsg{task: t, err: err}
+	}
+}
+
+func (m Model) assignToSelf() (tea.Model, tea.Cmd) {
+	if m.selectedTask == nil {
+		return m, nil
+	}
+	assigner, ok := m.provider.(tasks.SelfAssigner)
+	if !ok {
+		m.statusMessage = "✗  This provider does not support self-assign"
+		return m, nil
+	}
+	m.statusMessage = ""
+	return m, assignToSelfCmd(assigner, m.selectedTask.ID)
+}
+
+func (m Model) handleSelfAssigned(msg selfAssignedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMessage = "✗  " + msg.err.Error()
+		return m, nil
+	}
+
+	// Update in local task slice.
+	for i := range m.tasks {
+		if m.tasks[i].ID == msg.task.ID {
+			m.tasks[i] = msg.task
+			m.selectedTask = &m.tasks[i]
+			break
+		}
+	}
+	items := make([]list.Item, len(m.tasks))
+	for i, t := range m.tasks {
+		items[i] = taskItem{task: t}
+	}
+	m.list.SetItems(items)
+	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width))
+
+	m.statusMessage = "✓  Assigned to you"
+	return m, nil
 }
 
 func renderHeaderBar(title string, width int) string {	return appHeaderStyle.Width(width).Render(title)

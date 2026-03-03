@@ -140,3 +140,21 @@ type StatusUpdater interface {
 	// (the ID field from a StatusTransition) and returns the updated Task.
 	TransitionTask(taskID string, transitionID string) (Task, error)
 }
+
+// Searcher is an optional capability a Provider may implement to support
+// searching for tasks beyond the default filtered list. This allows finding
+// tasks not assigned to the current user, by keyword, ID, or other criteria.
+type Searcher interface {
+	// Search returns tasks matching the given query string. The interpretation
+	// of the query is provider-specific (e.g. JQL text search for Jira, or
+	// simple title/ID substring match for simpler providers).
+	Search(query string) ([]Task, error)
+}
+
+// SelfAssigner is an optional capability a Provider may implement to support
+// assigning a task to the currently authenticated user.
+type SelfAssigner interface {
+	// AssignToSelf assigns the given task to the current user and returns the
+	// updated Task.
+	AssignToSelf(taskID string) (Task, error)
+}
