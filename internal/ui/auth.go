@@ -226,7 +226,10 @@ func (m JiraAuthModel) updateCredsStage(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.credsFocusNext(), nil
 	}
-	return m, nil
+	// Delegate unrecognized keys to the focused text input.
+	var cmd tea.Cmd
+	m.inputs[m.focused], cmd = m.inputs[m.focused].Update(msg)
+	return m, cmd
 }
 
 func (m JiraAuthModel) credsFocusNext() JiraAuthModel {
@@ -293,6 +296,12 @@ func (m JiraAuthModel) updateFiltersStage(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.saveFilters()
+	}
+	// Delegate unrecognized keys to the projects input when it is focused.
+	if m.filterFocused == filterFocusProjects {
+		var cmd tea.Cmd
+		m.projectsInput, cmd = m.projectsInput.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
