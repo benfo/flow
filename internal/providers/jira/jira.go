@@ -27,8 +27,9 @@ const (
 
 // Provider fetches Jira issues assigned to the authenticated user.
 type Provider struct {
-	client *client
-	cfg    *config.JiraConfig
+	client    *client
+	cfg       *config.JiraConfig
+	accountID string // cached from /myself on first create
 }
 
 // New creates a Provider using the token from the OS keychain.
@@ -136,6 +137,16 @@ func (p *Provider) Create(input tasks.CreateInput) (tasks.Task, error) {
 		"summary":     input.Title,
 		"description": plainTextToADF(input.Description),
 		"project":     map[string]string{"key": projectKey},
+	}
+
+	// Auto-assign to the current user. Fetch account ID lazily and cache it.
+	if p.accountID == "" {
+		if me, err := p.client.Myself(); err == nil {
+			p.accountID = me.AccountId
+		}
+	}
+	if p.accountID != "" {
+		fields["assignee"] = map[string]string{"accountId": p.accountID}
 	}
 
 	if input.ParentID != "" {
@@ -404,6 +415,7 @@ func plainTextToADF(text string) map[string]interface{} {
 
 // MyselfResponse is the subset of /rest/api/3/myself we care about.
 type MyselfResponse struct {
+	AccountId    string `json:"accountId"`
 	DisplayName  string `json:"displayName"`
 	EmailAddress string `json:"emailAddress"`
 }

@@ -322,8 +322,10 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	return m.openDetailForTask(item.task)
+}
 
-	t := item.task
+func (m Model) openDetailForTask(t tasks.Task) (tea.Model, tea.Cmd) {
 	m.selectedTask = &t
 	m.state = viewDetail
 	m.subtasks = nil
@@ -467,20 +469,9 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // openSubtaskDetail opens a subtask's detail view (same view, different task).
 func (m Model) openSubtaskDetail(t tasks.Task) (tea.Model, tea.Cmd) {
-	m.selectedTask = &t
 	m.subtasks = nil
 	m.subtaskCursor = 0
-	m.detailFocus = detailFocusViewport
-
-	contentHeight := m.height - verticalOverhead
-	m.detail = viewport.New(m.width, contentHeight)
-	m.detail.SetContent(renderTaskDetail(t, m.width))
-
-	var cmd tea.Cmd
-	if fetcher, ok := m.provider.(tasks.SubtaskFetcher); ok {
-		cmd = loadSubtasksCmd(fetcher, t.ID)
-	}
-	return m, cmd
+	return m.openDetailForTask(t)
 }
 
 // handleSubtasksLoaded stores fetched subtasks and adjusts viewport height.
@@ -870,11 +861,12 @@ func (m Model) handleTaskCreated(msg taskCreatedMsg) (tea.Model, tea.Cmd) {
 		m.detail.Height = max(3, m.height-verticalOverhead-subtaskSectionH)
 		m.state = viewDetail
 		m.statusMessage = "✓  Subtask created: " + msg.task.ID
-	} else {
-		m.state = viewList
-		m.statusMessage = "✓  Task created: " + msg.task.ID
+		return m, nil
 	}
-	return m, nil
+
+	// For top-level tasks, open the detail view immediately.
+	m.statusMessage = "✓  Task created: " + msg.task.ID
+	return m.openDetailForTask(msg.task)
 }
 
 func (m Model) renderCreateView() string {
