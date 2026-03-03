@@ -1102,12 +1102,12 @@ func searchCmd(s tasks.Searcher, query string) tea.Cmd {
 func (m Model) handleSearchResults(msg searchResultsMsg) (tea.Model, tea.Cmd) {
 	m.searchLoading = false
 	if msg.err != nil {
-		m.searchModel.input.Placeholder = "Search tasks…"
-		// Show error inline; stay in search view.
-		_ = msg.err
 		return m, nil
 	}
 	m.searchModel = m.searchModel.SetResults(msg.tasks)
+	// Keep focus on input so the user can refine the query immediately,
+	// then press ↓ to browse results.
+	m.searchModel = m.searchModel.FocusInput()
 	return m, nil
 }
 
@@ -1125,43 +1125,45 @@ func (m Model) updateSearchView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.state = m.searchReturnState
 			return m, nil
-		case "tab":
-			if m.searchModel.focus == searchFocusInput {
-				if len(m.searchModel.results) > 0 {
-					m.searchModel = m.searchModel.SetResults(m.searchModel.results) // shifts focus
-				}
-			} else {
-				m.searchModel = m.searchModel.FocusInput()
-			}
-			return m, nil
 		case "enter":
-			if m.searchModel.focus == searchFocusInput {
-				q := m.searchModel.Query()
-				if q == "" {
-					return m, nil
+			if m.searchModel.focus == searchFocusResults {
+				// Open the selected result.
+				if t, ok := m.searchModel.Selected(); ok {
+					return m.openDetailForTask(t)
 				}
-				m.searchLoading = true
-				searcher := m.provider.(tasks.Searcher)
-				return m, tea.Batch(m.spinner.Tick, searchCmd(searcher, q))
 			}
-			// Results focused — open the selected task.
-			if t, ok := m.searchModel.Selected(); ok {
-				return m.openDetailForTask(t)
+			// Input focused — run the search.
+			q := m.searchModel.Query()
+			if q == "" {
+				return m, nil
 			}
+			m.searchLoading = true
+			searcher := m.provider.(tasks.Searcher)
+			return m, tea.Batch(m.spinner.Tick, searchCmd(searcher, q))
 		case "up", "k":
 			if m.searchModel.focus == searchFocusResults {
-				m.searchModel = m.searchModel.MoveUp()
-				return m, nil
+				if m.searchModel.cursor == 0 {
+					// At the top of results — jump back to input.
+					m.searchModel = m.searchModel.FocusInput()
+				} else {
+					m.searchModel = m.searchModel.MoveUp()
+				}
 			}
+			return m, nil
 		case "down", "j":
-			if m.searchModel.focus == searchFocusResults {
+			if m.searchModel.focus == searchFocusInput {
+				// Move into results if any exist.
+				if len(m.searchModel.results) > 0 {
+					m.searchModel = m.searchModel.SetResults(m.searchModel.results)
+				}
+			} else {
 				m.searchModel = m.searchModel.MoveDown()
-				return m, nil
 			}
+			return m, nil
 		}
 	}
 
-	// Delegate remaining messages to the text input.
+	// Delegate remaining messages to the text input (always active).
 	var cmd tea.Cmd
 	m.searchModel.input, cmd = m.searchModel.input.Update(msg)
 	return m, cmd
@@ -1171,9 +1173,14 @@ func (m Model) renderSearchView() string {
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  find", m.width)
 
-	footerText := "enter  search   tab  switch focus   ↑/↓  navigate results   enter  open   esc  back"
-	if m.searchLoading {
+	var footerText string
+	switch {
+	case m.searchLoading:
 		footerText = "searching…"
+	case m.searchModel.focus == searchFocusResults:
+		footerText = "↑/↓  navigate   ↑  back to input   enter  open   esc  back"
+	default:
+		footerText = "enter  search   ↓  into results   esc  back"
 	}
 	footer := renderFooterBar(footerText, m.width)
 
