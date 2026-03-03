@@ -1,0 +1,18 @@
+# Compiled binaries
+flow
+flow.exe
+*.exe
+dist/
+
+# Go build cache
+*.test
+*.out
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo

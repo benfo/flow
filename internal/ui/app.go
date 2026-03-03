@@ -1,0 +1,212 @@
+package ui
+
+import (
+	"fmt"
+
+	"github.com/ben-fourie/flow-cli/internal/tasks"
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// viewState tracks which top-level view is currently active.
+type viewState int
+
+const (
+	viewList   viewState = iota
+	viewDetail viewState = iota
+)
+
+// verticalOverhead is the number of rows consumed by the header and footer bars
+// that surround the main content area.
+const verticalOverhead = 3 // header(1) + blank separator(1) + footer(1)
+
+// ── Root model ────────────────────────────────────────────────────────────────
+
+// Model is the root Bubble Tea model for the flow dashboard.
+// It owns the list and detail sub-models and handles view-switching.
+type Model struct {
+	list         list.Model
+	detail       viewport.Model
+	state        viewState
+	tasks        []tasks.Task
+	selectedTask *tasks.Task
+	width        int
+	height       int
+}
+
+// New constructs the Model by fetching tasks from the given provider.
+// Returns an error if the provider fails so the caller can surface it cleanly.
+func New(provider tasks.Provider) (Model, error) {
+	taskList, err := provider.GetTasks()
+	if err != nil {
+		return Model{}, fmt.Errorf("loading tasks from %s provider: %w", provider.Name(), err)
+	}
+
+	items := make([]list.Item, len(taskList))
+	for i, t := range taskList {
+		items[i] = taskItem{task: t}
+	}
+
+	l := list.New(items, taskDelegate{}, 0, 0)
+	l.SetShowTitle(false)   // we render our own header
+	l.SetShowHelp(false)    // we render our own footer
+	l.SetShowStatusBar(true)
+	l.SetFilteringEnabled(true)
+	l.Styles.StatusBar = dimStyle
+
+	return Model{
+		list:  l,
+		tasks: taskList,
+		state: viewList,
+	}, nil
+}
+
+// ── tea.Model interface ───────────────────────────────────────────────────────
+
+// Init satisfies tea.Model. No IO commands are needed at startup.
+func (m Model) Init() tea.Cmd {
+	return nil
+}
+
+// Update is the single entry point for all incoming messages.
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Window resize is handled regardless of active view.
+	if resize, ok := msg.(tea.WindowSizeMsg); ok {
+		return m.handleResize(resize), nil
+	}
+
+	switch m.state {
+	case viewList:
+		return m.updateListView(msg)
+	case viewDetail:
+		return m.updateDetailView(msg)
+	}
+	return m, nil
+}
+
+// View renders the current view to a string for the terminal.
+func (m Model) View() string {
+	// Show a blank frame until the terminal size is known.
+	if m.width == 0 {
+		return ""
+	}
+
+	switch m.state {
+	case viewList:
+		return m.renderListView()
+	case viewDetail:
+		return m.renderDetailView()
+	}
+	return ""
+}
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+
+func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
+	m.width = msg.Width
+	m.height = msg.Height
+
+	contentHeight := msg.Height - verticalOverhead
+	m.list.SetSize(msg.Width, contentHeight)
+
+	if m.state == viewDetail {
+		m.detail.Width = msg.Width
+		m.detail.Height = contentHeight
+	}
+
+	return m
+}
+
+// ── List view ─────────────────────────────────────────────────────────────────
+
+func (m Model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		// Only intercept keys when the list is not in filter-input mode,
+		// so that 'q' and 'enter' are available to the filter prompt.
+		if m.list.FilterState() != list.Filtering {
+			switch key.String() {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "enter":
+				return m.openDetail()
+			}
+		}
+	}
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
+}
+
+func (m Model) openDetail() (tea.Model, tea.Cmd) {
+	item, ok := m.list.SelectedItem().(taskItem)
+	if !ok {
+		return m, nil
+	}
+
+	t := item.task
+	m.selectedTask = &t
+	m.state = viewDetail
+	m.detail = viewport.New(m.width, m.height-verticalOverhead)
+	m.detail.SetContent(renderTaskDetail(t, m.width))
+
+	return m, nil
+}
+
+func (m Model) renderListView() string {
+	header := renderHeaderBar("⚡ flow", m.width)
+	footer := renderFooterBar("↑/↓  navigate   enter  open   /  filter   esc  clear filter   q  quit", m.width)
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		m.list.View(),
+		footer,
+	)
+}
+
+// ── Detail view ───────────────────────────────────────────────────────────────
+
+func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "esc", "backspace":
+			m.state = viewList
+			return m, nil
+		case "o":
+			if m.selectedTask != nil && m.selectedTask.URL != "" {
+				return m, openURL(m.selectedTask.URL)
+			}
+		}
+	}
+
+	var cmd tea.Cmd
+	m.detail, cmd = m.detail.Update(msg)
+	return m, cmd
+}
+
+func (m Model) renderDetailView() string {
+	id := ""
+	if m.selectedTask != nil {
+		id = m.selectedTask.ID
+	}
+	header := renderHeaderBar("⚡ flow  /  "+id, m.width)
+	footer := renderFooterBar("esc  back   ↑/↓  scroll   o  open in browser   q  quit", m.width)
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		m.detail.View(),
+		footer,
+	)
+}
+
+// ── Shared layout helpers ─────────────────────────────────────────────────────
+
+func renderHeaderBar(title string, width int) string {
+	return appHeaderStyle.Width(width).Render(title)
+}
+
+func renderFooterBar(help string, width int) string {
+	return appFooterStyle.Width(width).Render(help)
+}
