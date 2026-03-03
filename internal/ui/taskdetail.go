@@ -64,7 +64,7 @@ func renderTaskDetail(t tasks.Task, width int) string {
 		for i, l := range t.Labels {
 			badges[i] = labelBadgeStyle.Render(l)
 		}
-		writeField(&sb, "Labels", strings.Join(badges, " "))
+		writeField(&sb, "Labels", lipgloss.JoinHorizontal(lipgloss.Top, badges...))
 	}
 
 	sb.WriteString("\n")
