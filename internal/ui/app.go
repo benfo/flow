@@ -743,10 +743,25 @@ func (m Model) openEditView() (tea.Model, tea.Cmd) {
 
 func (m Model) updateEditView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
+		// Handle discard confirmation mode first.
+		if m.editModel.confirming {
+			switch key.String() {
+			case "y", "enter":
+				m.editModel.confirming = false
+				m.state = viewDetail
+			case "n", "esc":
+				m.editModel.confirming = false
+			}
+			return m, nil
+		}
 		switch key.String() {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "esc":
+			if m.editModel.HasChanges() {
+				m.editModel.confirming = true
+				return m, nil
+			}
 			m.state = viewDetail
 			return m, nil
 		case "ctrl+s":
@@ -813,6 +828,9 @@ func (m Model) renderEditView() string {
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  edit", m.width)
 	footer := renderFooterBar("tab  switch field   ctrl+s  save   esc  discard", m.width)
+	if m.editModel.confirming {
+		footer = renderFooterBar("Discard changes?   y  yes   n / esc  keep editing", m.width)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
@@ -848,10 +866,29 @@ func (m Model) openCreateView(parent *tasks.Task) (tea.Model, tea.Cmd) {
 
 func (m Model) updateCreateView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
+		// Handle discard confirmation mode first.
+		if m.createModel.confirming {
+			switch key.String() {
+			case "y", "enter":
+				m.createModel.confirming = false
+				if m.createModel.parentTask != nil {
+					m.state = viewDetail
+				} else {
+					m.state = viewList
+				}
+			case "n", "esc":
+				m.createModel.confirming = false
+			}
+			return m, nil
+		}
 		switch key.String() {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "esc":
+			if m.createModel.HasChanges() {
+				m.createModel.confirming = true
+				return m, nil
+			}
 			if m.createModel.parentTask != nil {
 				m.state = viewDetail
 			} else {
@@ -940,6 +977,9 @@ func (m Model) renderCreateView() string {
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar(breadcrumb, m.width)
 	footer := renderFooterBar("tab  next field   shift+tab  prev field   ◀/▶  priority   space  toggle assign   ctrl+s  save   esc  discard", m.width)
+	if m.createModel.confirming {
+		footer = renderFooterBar("Discard changes?   y  yes   n / esc  keep editing", m.width)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,

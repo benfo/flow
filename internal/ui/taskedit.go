@@ -30,6 +30,7 @@ type TaskEditModel struct {
 	spinner    spinner.Model
 
 	originalTask tasks.Task
+	confirming   bool // true when asking user to confirm discard
 	width        int
 	height       int
 }
@@ -178,6 +179,8 @@ func (m TaskEditModel) View() string {
 
 	var statusLine string
 	switch {
+	case m.confirming:
+		statusLine = renderDiscardConfirm()
 	case m.saving:
 		statusLine = lipgloss.NewStyle().Foreground(colorPrimary).Padding(0, 2).
 			Render(m.spinner.View() + "  Saving…")

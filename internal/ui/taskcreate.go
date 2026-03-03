@@ -39,11 +39,17 @@ type TaskCreateModel struct {
 	errMsg     string
 	spinner    spinner.Model
 
-	parentTask *tasks.Task // non-nil when creating a subtask
-	showAssign bool        // true when provider supports SelfAssigner
-	assignToSelf bool      // whether to assign task to current user on create
-	width      int
-	height     int
+	parentTask   *tasks.Task // non-nil when creating a subtask
+	showAssign   bool        // true when provider supports SelfAssigner
+	assignToSelf bool        // whether to assign task to current user on create
+	confirming   bool        // true when asking user to confirm discard
+	width        int
+	height       int
+}
+
+// HasChanges reports whether the user has entered any content.
+func (m TaskCreateModel) HasChanges() bool {
+	return m.titleInput.Value() != "" || m.descInput.Value() != ""
 }
 
 // NewTaskCreateModel builds an empty create form. Pass a non-nil parentTask
@@ -248,6 +254,8 @@ func (m TaskCreateModel) View() string {
 	}
 
 	switch {
+	case m.confirming:
+		parts = append(parts, renderDiscardConfirm())
 	case m.saving:
 		parts = append(parts,
 			lipgloss.NewStyle().Foreground(colorPrimary).Padding(0, 2).
