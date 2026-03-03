@@ -5,6 +5,7 @@ import (
 
 	"github.com/ben-fourie/flow-cli/internal/tasks"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -155,3 +156,116 @@ func (m TaskSearchModel) View() string {
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
+
+// ── Search view ───────────────────────────────────────────────────────────────
+
+func (m Model) openSearchView() (tea.Model, tea.Cmd) {
+	if _, ok := m.provider.(tasks.Searcher); !ok {
+		m.statusMessage = "✗  This provider does not support search"
+		return m, nil
+	}
+	sm := NewTaskSearchModel()
+	sm.width = m.width
+	sm.height = m.height
+	sm.input.Width = m.width - 10
+	m.searchModel = sm
+	m.searchLoading = false
+	m.searchReturnState = m.state
+	m.state = viewSearch
+	m.statusMessage = ""
+	return m, textinput.Blink
+}
+
+func searchCmd(s tasks.Searcher, query string) tea.Cmd {
+	return func() tea.Msg {
+		ts, err := s.Search(query)
+		return searchResultsMsg{tasks: ts, err: err}
+	}
+}
+
+func (m Model) handleSearchResults(msg searchResultsMsg) (tea.Model, tea.Cmd) {
+	m.searchLoading = false
+	if msg.err != nil {
+		return m, nil
+	}
+	m.searchModel = m.searchModel.SetResults(msg.tasks)
+	return m, nil
+}
+
+func (m Model) updateSearchView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.searchLoading {
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			m.state = m.searchReturnState
+			return m, nil
+		case "enter":
+			// Open the selected result if one is highlighted; otherwise search.
+			if t, ok := m.searchModel.Selected(); ok {
+				return m.openDetailForTask(t, viewSearch)
+			}
+			q := m.searchModel.Query()
+			if q == "" {
+				return m, nil
+			}
+			m.searchLoading = true
+			searcher := m.provider.(tasks.Searcher)
+			return m, tea.Batch(m.spinner.Tick, searchCmd(searcher, q))
+		case "up":
+			m.searchModel = m.searchModel.MoveUp()
+			return m, nil
+		case "down":
+			m.searchModel = m.searchModel.MoveDown()
+			return m, nil
+		case "pgdown":
+			m.searchModel = m.searchModel.PageDown()
+			return m, nil
+		case "pgup":
+			m.searchModel = m.searchModel.PageUp()
+			return m, nil
+		}
+	}
+
+	// All other keys go to the text input. If the value changes, reset the
+	// cursor so the next enter runs a fresh search rather than opening a
+	// stale result.
+	prev := m.searchModel.Query()
+	var cmd tea.Cmd
+	m.searchModel.input, cmd = m.searchModel.input.Update(msg)
+	if m.searchModel.Query() != prev {
+		m.searchModel = m.searchModel.ResetCursor()
+	}
+	return m, cmd
+}
+
+func (m Model) renderSearchView() string {
+	sep := renderSeparator(m.width)
+	header := renderHeaderBar("⚡ flow  /  find", m.width)
+
+	var footerText string
+	if m.searchLoading {
+		footerText = "searching…"
+	} else {
+		footerText = "enter  search/open   ↑/↓  navigate results   pgup/pgdn  page   esc  back"
+	}
+	footer := renderFooterBar(footerText, m.width)
+
+	var content string
+	if m.searchLoading {
+		content = lipgloss.NewStyle().Padding(2, 2).Foreground(colorText).
+			Render(m.spinner.View() + "  Searching…")
+	} else {
+		content = m.searchModel.View()
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, sep, content, sep, footer)
+}
+
+

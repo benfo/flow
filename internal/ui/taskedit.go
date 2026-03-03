@@ -2,6 +2,7 @@ package ui
 
 import (
 	"github.com/ben-fourie/flow-cli/internal/tasks"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -195,4 +196,128 @@ func (m TaskEditModel) View() string {
 func (m TaskEditModel) renderEditField(label, content string, focused bool) string {
 	return renderFormField(label, content, focused)
 }
+
+
+// ── Edit view ─────────────────────────────────────────────────────────────────
+
+func (m Model) openEditView() (tea.Model, tea.Cmd) {
+	if m.selectedTask == nil {
+		return m, nil
+	}
+	if _, ok := m.provider.(tasks.Updater); !ok {
+		m.statusMessage = "✗  This provider does not support editing"
+		return m, nil
+	}
+
+	em := NewTaskEditModel(*m.selectedTask)
+	em.width = m.width
+	em.height = m.height
+	em.applyWidths()
+	m.editModel = em
+	m.state = viewEdit
+	m.statusMessage = ""
+	return m, textinput.Blink
+}
+
+func (m Model) updateEditView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		// Handle discard confirmation mode first.
+		if m.editModel.confirming {
+			switch key.String() {
+			case "y", "enter":
+				m.editModel.confirming = false
+				m.state = viewDetail
+			case "n", "esc":
+				m.editModel.confirming = false
+			}
+			return m, nil
+		}
+		switch key.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			if m.editModel.HasChanges() {
+				m.editModel.confirming = true
+				return m, nil
+			}
+			m.state = viewDetail
+			return m, nil
+		case "ctrl+s":
+			if m.editModel.saving {
+				return m, nil
+			}
+			updater, ok := m.provider.(tasks.Updater)
+			if !ok {
+				return m, nil
+			}
+			m.editModel = m.editModel.SetSaving(true)
+			return m, tea.Batch(
+				m.editModel.spinner.Tick,
+				saveTaskCmd(updater, m.editModel.EditedTask()),
+			)
+		}
+	}
+
+	var cmd tea.Cmd
+	m.editModel, cmd = m.editModel.Update(msg)
+	return m, cmd
+}
+
+func saveTaskCmd(u tasks.Updater, t tasks.Task) tea.Cmd {
+	return func() tea.Msg {
+		err := u.Update(t)
+		return taskSavedMsg{task: t, err: err}
+	}
+}
+
+func (m Model) handleTaskSaved(msg taskSavedMsg) (tea.Model, tea.Cmd) {
+	m.editModel = m.editModel.SetSaving(false)
+	if msg.err != nil {
+		m.editModel = m.editModel.SetError(msg.err.Error())
+		return m, nil
+	}
+
+	// Update the task in the local slice and refresh the list.
+	for i := range m.tasks {
+		if m.tasks[i].ID == msg.task.ID {
+			m.tasks[i] = msg.task
+			m.selectedTask = &m.tasks[i]
+			break
+		}
+	}
+	items := make([]list.Item, len(m.tasks))
+	for i, t := range m.tasks {
+		items[i] = m.makeTaskItem(t)
+	}
+	m.list.SetItems(items)
+
+	// Refresh the detail view content with updated task.
+	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width, m.branchForTask(m.selectedTask.ID)))
+
+	m.statusMessage = "✓  Saved"
+	m.state = viewDetail
+	return m, nil
+}
+
+func (m Model) renderEditView() string {
+	if m.selectedTask == nil {
+		return ""
+	}
+	sep := renderSeparator(m.width)
+	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  edit", m.width)
+	footer := renderFooterBar("tab  switch field   ctrl+s  save   esc  discard", m.width)
+	if m.editModel.confirming {
+		footer = renderFooterBar("Discard changes?   y  yes   n / esc  keep editing", m.width)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		sep,
+		m.editModel.View(),
+		sep,
+		footer,
+	)
+}
+
+
 

@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/ben-fourie/flow-cli/internal/tasks"
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -106,3 +108,290 @@ func max(a, b int) int {
 	}
 	return b
 }
+
+// ── Detail view orchestration ─────────────────────────────────────────────────
+
+func (m Model) openDetailForTask(t tasks.Task, returnTo viewState) (tea.Model, tea.Cmd) {
+	m.selectedTask = &t
+	m.state = viewDetail
+	m.detailReturnState = returnTo
+	m.subtasks = nil
+	m.subtaskCursor = 0
+	m.detailFocus = detailFocusViewport
+	m.confirmingDelete = false
+
+	contentHeight := m.height - verticalOverhead
+	m.detail = viewport.New(m.width, contentHeight)
+	m.detail.SetContent(renderTaskDetail(t, m.width, m.branchForTask(t.ID)))
+
+	var cmd tea.Cmd
+	if fetcher, ok := m.provider.(tasks.SubtaskFetcher); ok {
+		cmd = loadSubtasksCmd(fetcher, t.ID)
+	}
+	return m, cmd
+}
+
+// loadSubtasksCmd returns a Cmd that fetches subtasks in the background.
+func loadSubtasksCmd(f tasks.SubtaskFetcher, parentID string) tea.Cmd {
+	return func() tea.Msg {
+		ts, err := f.GetSubtasks(parentID)
+		return subtasksLoadedMsg{tasks: ts, err: err}
+	}
+}
+
+// ── Self-assign (accessible from detail view) ─────────────────────────────────
+
+func assignToSelfCmd(a tasks.SelfAssigner, taskID string) tea.Cmd {
+	return func() tea.Msg {
+		t, err := a.AssignToSelf(taskID)
+		return selfAssignedMsg{task: t, err: err}
+	}
+}
+
+func (m Model) assignToSelf() (tea.Model, tea.Cmd) {
+	if m.selectedTask == nil {
+		return m, nil
+	}
+	assigner, ok := m.provider.(tasks.SelfAssigner)
+	if !ok {
+		m.statusMessage = "✗  This provider does not support self-assign"
+		return m, nil
+	}
+	m.statusMessage = ""
+	return m, assignToSelfCmd(assigner, m.selectedTask.ID)
+}
+
+func (m Model) handleSelfAssigned(msg selfAssignedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMessage = "✗  " + msg.err.Error()
+		return m, nil
+	}
+
+	for i := range m.tasks {
+		if m.tasks[i].ID == msg.task.ID {
+			m.tasks[i] = msg.task
+			m.selectedTask = &m.tasks[i]
+			break
+		}
+	}
+	items := make([]list.Item, len(m.tasks))
+	for i, t := range m.tasks {
+		items[i] = m.makeTaskItem(t)
+	}
+	m.list.SetItems(items)
+	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width, m.branchForTask(m.selectedTask.ID)))
+
+	m.statusMessage = "✓  Assigned to you"
+	return m, nil
+}
+
+// ── Detail view ───────────────────────────────────────────────────────────────
+
+func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle delete confirmation overlay first.
+	if m.confirmingDelete {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "y", "enter":
+				m.confirmingDelete = false
+				if del, ok := m.provider.(tasks.TaskDeleter); ok && m.selectedTask != nil {
+					t := *m.selectedTask
+					return m, deleteTaskCmd(del, t)
+				}
+			case "n", "esc":
+				m.confirmingDelete = false
+			}
+		}
+		return m, nil
+	}
+
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "esc", "backspace":
+			if m.detailReturnState == viewDetail && m.detailReturnTask != nil {
+				// Returning from a subtask — fully re-open the parent detail view.
+				parent := *m.detailReturnTask
+				parentReturnState := m.detailParentReturnState
+				m.detailReturnTask = nil
+				return m.openDetailForTask(parent, parentReturnState)
+			}
+			m.state = m.detailReturnState
+			return m, nil
+		case "o":
+			if m.selectedTask != nil && m.selectedTask.URL != "" {
+				return m, openURL(m.selectedTask.URL)
+			}
+		case "b":
+			return m.openBranchView()
+		case "e":
+			return m.openEditView()
+		case "f":
+			return m.openSearchView()
+		case "s":
+			return m.openStatusView()
+		case "a":
+			return m.assignToSelf()
+		case "c":
+			return m.openCommentsView()
+		case "n":
+			return m.openCreateView(m.selectedTask)
+		case "D":
+			if _, canDelete := m.provider.(tasks.TaskDeleter); canDelete && m.selectedTask != nil {
+				m.confirmingDelete = true
+				m.statusMessage = ""
+				return m, nil
+			}
+		case "tab":
+			// Toggle focus between viewport and subtask list (only if subtasks exist).
+			if len(m.subtasks) > 0 {
+				if m.detailFocus == detailFocusViewport {
+					m.detailFocus = detailFocusSubtasks
+				} else {
+					m.detailFocus = detailFocusViewport
+				}
+			}
+			return m, nil
+		case "up", "k":
+			if m.detailFocus == detailFocusSubtasks {
+				if m.subtaskCursor > 0 {
+					m.subtaskCursor--
+				}
+				return m, nil
+			}
+		case "down", "j":
+			if m.detailFocus == detailFocusSubtasks {
+				if m.subtaskCursor < len(m.subtasks)-1 {
+					m.subtaskCursor++
+				}
+				return m, nil
+			}
+		case "enter":
+			if m.detailFocus == detailFocusSubtasks && len(m.subtasks) > 0 {
+				return m.openSubtaskDetail(m.subtasks[m.subtaskCursor])
+			}
+		}
+	}
+
+	if m.detailFocus == detailFocusViewport {
+		var cmd tea.Cmd
+		m.detail, cmd = m.detail.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+// openSubtaskDetail opens a subtask's detail view (same view, different task).
+func (m Model) openSubtaskDetail(t tasks.Task) (tea.Model, tea.Cmd) {
+	m.detailReturnTask = m.selectedTask        // remember parent to restore on esc
+	m.detailParentReturnState = m.detailReturnState // remember parent's own return state
+	m.subtasks = nil
+	m.subtaskCursor = 0
+	return m.openDetailForTask(t, viewDetail)
+}
+
+// handleSubtasksLoaded stores fetched subtasks and adjusts viewport height.
+func (m Model) handleSubtasksLoaded(msg subtasksLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil || len(msg.tasks) == 0 {
+		return m, nil
+	}
+	m.subtasks = msg.tasks
+	m.subtaskCursor = 0
+	// Shrink viewport to make room for the subtask section.
+	subtaskSectionH := subtaskSectionHeight(len(m.subtasks))
+	contentH := m.height - verticalOverhead - subtaskSectionH
+	m.detail.Height = max(3, contentH)
+	return m, nil
+}
+
+// subtaskSectionHeight returns the number of terminal rows the subtask section
+// occupies: 1 header line + 1 line per subtask, capped at 8 subtasks shown.
+func subtaskSectionHeight(n int) int {
+	shown := min(n, 8)
+	return shown + 2 // header row + blank separator
+}
+
+func (m Model) renderDetailView() string {
+	id := ""
+	if m.selectedTask != nil {
+		id = m.selectedTask.ID
+	}
+	sep := renderSeparator(m.width)
+	header := renderHeaderBar("⚡ flow  /  "+id, m.width)
+
+	hints := []string{"esc  back", "↑/↓  scroll", "o  open", "b  branch"}
+	if _, canEdit := m.provider.(tasks.Updater); canEdit {
+		hints = append(hints, "e  edit")
+	}
+	if _, canCreate := m.provider.(tasks.Creator); canCreate {
+		hints = append(hints, "n  subtask")
+	}
+	if _, canStatus := m.provider.(tasks.StatusUpdater); canStatus {
+		hints = append(hints, "s  status")
+	}
+	if _, canAssign := m.provider.(tasks.SelfAssigner); canAssign {
+		hints = append(hints, "a  assign")
+	}
+	if _, canComment := m.provider.(tasks.CommentLister); canComment {
+		hints = append(hints, "c  comments")
+	}
+	if _, canDelete := m.provider.(tasks.TaskDeleter); canDelete {
+		hints = append(hints, "D  delete")
+	}
+	if len(m.subtasks) > 0 {
+		hints = append(hints, "tab  subtasks")
+	}
+	hints = append(hints, "q  quit")
+
+	var footerText string
+	if m.confirmingDelete && m.selectedTask != nil {
+		footerText = renderDeleteConfirm(m.selectedTask.ID)
+	} else if m.statusMessage != "" {
+		footerText = m.statusMessage
+	} else {
+		footerText = fitHints(hints, "   ", m.width-2)
+	}
+	footer := renderFooterBar(footerText, m.width)
+
+	parts := []string{header, sep, m.detail.View()}
+
+	// Render the subtask mini-list when subtasks are available.
+	if len(m.subtasks) > 0 {
+		parts = append(parts, m.renderSubtaskSection())
+	}
+
+	parts = append(parts, sep, footer)
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func (m Model) renderSubtaskSection() string {
+	focused := m.detailFocus == detailFocusSubtasks
+
+	headerLabel := dimStyle.Render("── Subtasks")
+	if focused {
+		headerLabel = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render("── Subtasks")
+	}
+	header := lipgloss.NewStyle().Padding(0, 1).Render(headerLabel)
+
+	var rows []string
+	shown := min(len(m.subtasks), 8)
+	for i := 0; i < shown; i++ {
+		t := m.subtasks[i]
+		cursor := "  "
+		style := dimStyle
+		if focused && i == m.subtaskCursor {
+			cursor = lipgloss.NewStyle().Foreground(colorPrimary).Render("▶ ")
+			style = lipgloss.NewStyle().Foreground(colorText).Bold(true)
+		}
+		id := lipgloss.NewStyle().Foreground(colorPrimary).Render(t.ID)
+		title := style.Render(t.Title)
+		status := lipgloss.NewStyle().Foreground(statusColor(t.Status)).Render(t.Status.String())
+		row := cursor + id + "  " + title + "  " + dimStyle.Render(status)
+		rows = append(rows, lipgloss.NewStyle().Padding(0, 1).Render(row))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, append([]string{header}, rows...)...)
+}
+
+

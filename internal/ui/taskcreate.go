@@ -2,6 +2,7 @@ package ui
 
 import (
 	"github.com/ben-fourie/flow-cli/internal/tasks"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -327,3 +328,219 @@ func (m TaskCreateModel) renderPriorityField() string {
 		lipgloss.NewStyle().Padding(0, 2).Render(box),
 	)
 }
+
+// ── Create view ───────────────────────────────────────────────────────────────
+
+func (m Model) openCreateView(parent *tasks.Task) (tea.Model, tea.Cmd) {
+	if _, ok := m.provider.(tasks.Creator); !ok {
+		m.statusMessage = "✗  This provider does not support creating tasks"
+		return m, nil
+	}
+
+	cm := NewTaskCreateModel(parent)
+	cm.width = m.width
+	cm.height = m.height
+	if _, ok := m.provider.(tasks.SelfAssigner); ok {
+		cm.showAssign = true
+	}
+	cm.applyWidths()
+	m.createModel = cm
+	m.state = viewCreate
+	m.statusMessage = ""
+	return m, textinput.Blink
+}
+
+func (m Model) updateCreateView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		// Handle discard confirmation mode first.
+		if m.createModel.confirming {
+			switch key.String() {
+			case "y", "enter":
+				m.createModel.confirming = false
+				if m.createModel.parentTask != nil {
+					m.state = viewDetail
+				} else {
+					m.state = viewList
+				}
+			case "n", "esc":
+				m.createModel.confirming = false
+			}
+			return m, nil
+		}
+		switch key.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "esc":
+			if m.createModel.HasChanges() {
+				m.createModel.confirming = true
+				return m, nil
+			}
+			if m.createModel.parentTask != nil {
+				m.state = viewDetail
+			} else {
+				m.state = viewList
+			}
+			return m, nil
+		case "ctrl+s":
+			if m.createModel.saving {
+				return m, nil
+			}
+			if m.createModel.BuildInput().Title == "" {
+				m.createModel = m.createModel.SetError("Title is required")
+				return m, nil
+			}
+			creator := m.provider.(tasks.Creator)
+			m.createModel = m.createModel.SetSaving(true)
+			return m, tea.Batch(
+				m.createModel.spinner.Tick,
+				createTaskCmd(creator, m.createModel.BuildInput()),
+			)
+		}
+	}
+
+	var cmd tea.Cmd
+	m.createModel, cmd = m.createModel.Update(msg)
+	return m, cmd
+}
+
+func createTaskCmd(c tasks.Creator, input tasks.CreateInput) tea.Cmd {
+	return func() tea.Msg {
+		t, err := c.Create(input)
+		return taskCreatedMsg{task: t, err: err}
+	}
+}
+
+func deleteTaskCmd(d tasks.TaskDeleter, t tasks.Task) tea.Cmd {
+	return func() tea.Msg {
+		err := d.DeleteTask(t.ID)
+		return taskDeletedMsg{taskID: t.ID, parentID: t.ParentID, err: err}
+	}
+}
+
+func (m Model) handleTaskDeleted(msg taskDeletedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMessage = "✗  " + msg.err.Error()
+		m.state = viewDetail
+		return m, nil
+	}
+
+	// Remove the task (and any subtasks) from the local slice.
+	var updated []tasks.Task
+	for _, t := range m.tasks {
+		if t.ID == msg.taskID || t.ParentID == msg.taskID {
+			continue
+		}
+		updated = append(updated, t)
+	}
+	// Update parent HasChildren flag if this was a subtask.
+	if msg.parentID != "" {
+		hasChild := false
+		for _, t := range updated {
+			if t.ParentID == msg.parentID {
+				hasChild = true
+				break
+			}
+		}
+		if !hasChild {
+			for i := range updated {
+				if updated[i].ID == msg.parentID {
+					updated[i].HasChildren = false
+					break
+				}
+			}
+		}
+	}
+	m.tasks = updated
+	items := make([]list.Item, len(m.tasks))
+	for i, t := range m.tasks {
+		items[i] = m.makeTaskItem(t)
+	}
+	m.list.SetItems(items)
+
+	if msg.parentID != "" {
+		// Return to parent task detail and refresh subtasks.
+		if m.detailReturnTask != nil {
+			parent := *m.detailReturnTask
+			parentReturnState := m.detailParentReturnState
+			m.detailReturnTask = nil
+			m.subtasks = nil
+			m.subtaskCursor = 0
+			m.statusMessage = "✓  Deleted " + msg.taskID
+			return m.openDetailForTask(parent, parentReturnState)
+		}
+		m.state = viewList
+		return m, nil
+	}
+
+	m.selectedTask = nil
+	m.state = m.detailReturnState
+	m.statusMessage = ""
+	return m, nil
+}
+
+func (m Model) handleTaskCreated(msg taskCreatedMsg) (tea.Model, tea.Cmd) {
+	m.createModel = m.createModel.SetSaving(false)
+	if msg.err != nil {
+		m.createModel = m.createModel.SetError(msg.err.Error())
+		return m, nil
+	}
+
+	// Add new task to the local slice and refresh the list.
+	m.tasks = append(m.tasks, msg.task)
+	items := make([]list.Item, len(m.tasks))
+	for i, t := range m.tasks {
+		items[i] = m.makeTaskItem(t)
+	}
+	m.list.SetItems(items)
+
+	// If this was a subtask, go back to the parent detail and reload subtasks.
+	if msg.task.ParentID != "" {
+		// Update HasChildren flag on the parent task.
+		for i := range m.tasks {
+			if m.tasks[i].ID == msg.task.ParentID {
+				m.tasks[i].HasChildren = true
+				if m.selectedTask != nil && m.selectedTask.ID == msg.task.ParentID {
+					m.selectedTask = &m.tasks[i]
+				}
+			}
+		}
+		m.subtasks = append(m.subtasks, msg.task)
+		// Adjust viewport height for the new subtask.
+		subtaskSectionH := subtaskSectionHeight(len(m.subtasks))
+		m.detail.Height = max(3, m.height-verticalOverhead-subtaskSectionH)
+		m.state = viewDetail
+		m.statusMessage = "✓  Subtask created: " + msg.task.ID
+		return m, nil
+	}
+
+	// For top-level tasks, open the detail view immediately.
+	m.statusMessage = "✓  Task created: " + msg.task.ID
+	return m.openDetailForTask(msg.task, viewList)
+}
+
+func (m Model) renderCreateView() string {
+	isSubtask := m.createModel.parentTask != nil
+
+	var breadcrumb string
+	if isSubtask && m.selectedTask != nil {
+		breadcrumb = "⚡ flow  /  " + m.selectedTask.ID + "  /  new subtask"
+	} else {
+		breadcrumb = "⚡ flow  /  new task"
+	}
+
+	sep := renderSeparator(m.width)
+	header := renderHeaderBar(breadcrumb, m.width)
+	footer := renderFooterBar(fitHints([]string{"tab  next", "shift+tab  prev", "◀/▶  priority", "space  assign", "ctrl+s  save", "esc  discard"}, "   ", m.width-2), m.width)
+	if m.createModel.confirming {
+		footer = renderFooterBar("Discard changes?   y  yes   n / esc  keep editing", m.width)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		sep,
+		m.createModel.View(),
+		sep,
+		footer,
+	)
+}
+

@@ -271,3 +271,272 @@ func countLabel(n int) string {
 	}
 	return fmt.Sprintf("%d comments", n)
 }
+
+// ── Comments ──────────────────────────────────────────────────────────────────
+
+func (m Model) openCommentsView() (tea.Model, tea.Cmd) {
+	if m.selectedTask == nil {
+		return m, nil
+	}
+	lister, ok := m.provider.(tasks.CommentLister)
+	if !ok {
+		m.statusMessage = "✗  This provider does not support comments"
+		return m, nil
+	}
+	m.commentsModel = NewTaskCommentsModel(m.selectedTask.ID)
+	m.commentsModel.width = m.width
+	m.commentsModel.height = m.height
+	m.state = viewComments
+	return m, loadCommentsCmd(lister, m.selectedTask.ID)
+}
+
+func loadCommentsCmd(l tasks.CommentLister, taskID string) tea.Cmd {
+	return func() tea.Msg {
+		comments, err := l.GetComments(taskID)
+		return commentsLoadedMsg{comments: comments, err: err}
+	}
+}
+
+func (m Model) handleCommentsLoaded(msg commentsLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMessage = "✗  " + msg.err.Error()
+		return m, nil
+	}
+	m.commentsModel = m.commentsModel.SetComments(msg.comments)
+	return m, nil
+}
+
+func (m Model) updateCommentsView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Delegate resize and spinner to child model.
+	if _, ok := msg.(tea.WindowSizeMsg); ok {
+		var cmd tea.Cmd
+		m.commentsModel, cmd = m.commentsModel.Update(msg)
+		return m, cmd
+	}
+
+	// While in compose mode, handle keys here; typing goes to child.
+	if m.commentsModel.mode == commentModeCompose {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				if m.commentsModel.HasComposeChanges() && !m.commentsModel.confirming {
+					m.commentsModel.confirming = true
+					return m, nil
+				}
+				if m.commentsModel.confirming {
+					m.commentsModel.confirming = false
+					return m, nil
+				}
+				m.commentsModel.mode = commentModeList
+				return m, nil
+			case "y":
+				if m.commentsModel.confirming {
+					m.commentsModel.confirming = false
+					m.commentsModel.mode = commentModeList
+					return m, nil
+				}
+			case "n":
+				if m.commentsModel.confirming {
+					m.commentsModel.confirming = false
+					return m, nil
+				}
+			case "ctrl+s":
+				if m.commentsModel.saving {
+					return m, nil
+				}
+				body := m.commentsModel.ComposeBody()
+				if body == "" {
+					m.commentsModel.errMsg = "Comment cannot be empty"
+					return m, nil
+				}
+				m.commentsModel.saving = true
+				m.commentsModel.errMsg = ""
+				taskID := m.commentsModel.taskID
+				editingID := m.commentsModel.editingID
+				var cmd tea.Cmd
+				if editingID != "" {
+					editor := m.provider.(tasks.CommentEditor)
+					cmd = editCommentCmd(editor, taskID, editingID, body)
+				} else {
+					adder := m.provider.(tasks.CommentAdder)
+					cmd = addCommentCmd(adder, taskID, body)
+				}
+				return m, tea.Batch(m.commentsModel.spinner.Tick, cmd)
+			}
+		}
+		// Pass remaining keys (typing) to child model.
+		var cmd tea.Cmd
+		m.commentsModel, cmd = m.commentsModel.Update(msg)
+		return m, cmd
+	}
+
+	// List mode.
+	if key, ok := msg.(tea.KeyMsg); ok {
+		switch key.String() {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "esc", "backspace":
+			m.state = viewDetail
+			return m, nil
+		case "up", "k":
+			if m.commentsModel.cursor > 0 {
+				m.commentsModel.cursor--
+			}
+			return m, nil
+		case "down", "j":
+			if m.commentsModel.cursor < len(m.commentsModel.comments)-1 {
+				m.commentsModel.cursor++
+			}
+			return m, nil
+		case "n":
+			m.commentsModel = m.commentsModel.openCompose(tasks.Comment{})
+			return m, nil
+		case "e":
+			if c, ok := m.commentsModel.SelectedComment(); ok {
+				m.commentsModel = m.commentsModel.openCompose(c)
+			}
+			return m, nil
+		case "d":
+			if _, ok := m.commentsModel.SelectedComment(); ok {
+				m.commentsModel.mode = commentModeDelete
+			}
+			return m, nil
+		}
+	}
+
+	// Delete confirmation mode.
+	if m.commentsModel.mode == commentModeDelete {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "y", "enter":
+				if c, ok := m.commentsModel.SelectedComment(); ok {
+					deleter := m.provider.(tasks.CommentDeleter)
+					m.commentsModel.mode = commentModeList
+					return m, deleteCommentCmd(deleter, m.commentsModel.taskID, c.ID)
+				}
+			case "n", "esc":
+				m.commentsModel.mode = commentModeList
+			}
+			return m, nil
+		}
+	}
+
+	return m, nil
+}
+
+func addCommentCmd(a tasks.CommentAdder, taskID, body string) tea.Cmd {
+	return func() tea.Msg {
+		c, err := a.AddComment(taskID, body)
+		return commentSavedMsg{comment: c, err: err}
+	}
+}
+
+func editCommentCmd(e tasks.CommentEditor, taskID, commentID, body string) tea.Cmd {
+	return func() tea.Msg {
+		c, err := e.EditComment(taskID, commentID, body)
+		return commentSavedMsg{comment: c, err: err}
+	}
+}
+
+func deleteCommentCmd(d tasks.CommentDeleter, taskID, commentID string) tea.Cmd {
+	return func() tea.Msg {
+		err := d.DeleteComment(taskID, commentID)
+		return commentDeletedMsg{commentID: commentID, err: err}
+	}
+}
+
+func (m Model) handleCommentSaved(msg commentSavedMsg) (tea.Model, tea.Cmd) {
+	m.commentsModel.saving = false
+	if msg.err != nil {
+		m.commentsModel.errMsg = msg.err.Error()
+		return m, nil
+	}
+	// Update or append in local list.
+	found := false
+	for i, c := range m.commentsModel.comments {
+		if c.ID == msg.comment.ID {
+			m.commentsModel.comments[i] = msg.comment
+			found = true
+			break
+		}
+	}
+	if !found {
+		m.commentsModel.comments = append(m.commentsModel.comments, msg.comment)
+		m.commentsModel.cursor = len(m.commentsModel.comments) - 1
+	}
+	m.commentsModel.mode = commentModeList
+	return m, nil
+}
+
+func (m Model) handleCommentDeleted(msg commentDeletedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMessage = "✗  " + msg.err.Error()
+		return m, nil
+	}
+	// Remove from local list.
+	for i, c := range m.commentsModel.comments {
+		if c.ID == msg.commentID {
+			m.commentsModel.comments = append(
+				m.commentsModel.comments[:i],
+				m.commentsModel.comments[i+1:]...,
+			)
+			if m.commentsModel.cursor >= len(m.commentsModel.comments) && m.commentsModel.cursor > 0 {
+				m.commentsModel.cursor--
+			}
+			break
+		}
+	}
+	return m, nil
+}
+
+func (m Model) renderCommentsView() string {
+	if m.selectedTask == nil {
+		return ""
+	}
+	sep := renderSeparator(m.width)
+	title := m.selectedTask.ID + "  /  comments"
+	if len(m.commentsModel.comments) > 0 {
+		title += "  (" + countLabel(len(m.commentsModel.comments)) + ")"
+	}
+	header := renderHeaderBar("⚡ flow  /  "+title, m.width)
+
+	var footer string
+	switch m.commentsModel.mode {
+	case commentModeCompose:
+		if m.commentsModel.confirming {
+			footer = renderFooterBar("Discard changes?   y  yes   n / esc  keep editing", m.width)
+		} else {
+			footer = renderFooterBar("ctrl+s  save   esc  cancel", m.width)
+		}
+	case commentModeDelete:
+		footer = renderFooterBar("Delete this comment?   y  yes   n / esc  cancel", m.width)
+	default:
+		commentHints := []string{"esc  back", "↑/↓  navigate"}
+		if _, ok := m.provider.(tasks.CommentAdder); ok {
+			commentHints = append(commentHints, "n  new")
+		}
+		if _, ok := m.provider.(tasks.CommentEditor); ok {
+			commentHints = append(commentHints, "e  edit")
+		}
+		if _, ok := m.provider.(tasks.CommentDeleter); ok {
+			commentHints = append(commentHints, "d  delete")
+		}
+		footer = renderFooterBar(fitHints(commentHints, "   ", m.width-2), m.width)
+	}
+
+	content := m.commentsModel.View()
+
+	// Delete confirmation overlay.
+	if m.commentsModel.mode == commentModeDelete {
+		if c, ok := m.commentsModel.SelectedComment(); ok {
+			prompt := lipgloss.NewStyle().
+				Foreground(colorPriorityCritical).Bold(true).Padding(1, 2).
+				Render("Delete comment by " + c.Author + "?   y  yes   n / esc  cancel")
+			content = prompt + "\n" + content
+		}
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, sep, content, sep, footer)
+}

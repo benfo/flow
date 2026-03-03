@@ -78,3 +78,96 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	fmt.Fprintln(w, row1)
 	fmt.Fprint(w, row2)
 }
+
+// ── List view orchestration ───────────────────────────────────────────────────
+
+// makeTaskItem builds a taskItem, populating activeBranch when the task ID
+// matches the currently checked-out branch.
+func (m Model) makeTaskItem(t tasks.Task) taskItem {
+	return taskItem{task: t, activeBranch: m.branchForTask(t.ID)}
+}
+
+// branchForTask returns activeBranch if it matches taskID, otherwise "".
+func (m Model) branchForTask(taskID string) string {
+	if m.activeTaskID != "" && taskID == m.activeTaskID {
+		return m.activeBranch
+	}
+	return ""
+}
+
+// handleTasksLoaded populates the list when the async fetch completes.
+func (m Model) handleTasksLoaded(msg tasksLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.loadErr = msg.err.Error()
+		m.state = viewError
+		return m, nil
+	}
+
+	items := make([]list.Item, len(msg.tasks))
+	for i, t := range msg.tasks {
+		items[i] = m.makeTaskItem(t)
+	}
+	m.list.SetItems(items)
+	m.tasks = msg.tasks
+	m.state = viewList
+	return m, nil
+}
+
+func (m Model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		if m.list.FilterState() != list.Filtering {
+			switch key.String() {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "enter":
+				return m.openDetail()
+			case "n":
+				return m.openCreateView(nil)
+			case "f":
+				return m.openSearchView()
+			case "r":
+				m.state = viewLoading
+				return m, tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider))
+			}
+		}
+	}
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
+}
+
+func (m Model) openDetail() (tea.Model, tea.Cmd) {
+	item, ok := m.list.SelectedItem().(taskItem)
+	if !ok {
+		return m, nil
+	}
+	return m.openDetailForTask(item.task, viewList)
+}
+
+func (m Model) renderListView() string {
+	header := renderHeaderBar("⚡ flow", m.width)
+	sep := renderSeparator(m.width)
+
+	hints := []string{"↑/↓  navigate", "enter  open", "/  filter", "esc  clear filter", "r  refresh", "f  find"}
+	if _, canCreate := m.provider.(tasks.Creator); canCreate {
+		hints = append(hints, "n  new")
+	}
+	hints = append(hints, "q  quit")
+	footer := renderFooterBar(fitHints(hints, "   ", m.width-2), m.width)
+
+	var content string
+	if len(m.list.VisibleItems()) == 0 && m.list.FilterState() == list.FilterApplied {
+		content = emptyStateStyle.Render("No tasks match your filter.")
+	} else {
+		content = m.list.View()
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		sep,
+		content,
+		sep,
+		footer,
+	)
+}

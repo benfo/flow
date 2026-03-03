@@ -246,3 +246,15 @@ func priorityIndicator(p tasks.Priority) string {
 		return " "
 	}
 }
+
+func renderHeaderBar(title string, width int) string {
+	return appHeaderStyle.Width(width).Render(title)
+}
+
+func renderFooterBar(help string, width int) string {
+	return appFooterStyle.Width(width).Render(help)
+}
+
+func renderSeparator(width int) string {
+	return separatorStyle.Render(strings.Repeat("─", width))
+}
