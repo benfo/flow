@@ -7,6 +7,9 @@ import (
 
 	"github.com/ben-fourie/flow-cli/internal/config"
 	igit "github.com/ben-fourie/flow-cli/internal/git"
+	"github.com/ben-fourie/flow-cli/internal/keychain"
+	"github.com/ben-fourie/flow-cli/internal/providers"
+	"github.com/ben-fourie/flow-cli/internal/providers/jira"
 	"github.com/ben-fourie/flow-cli/internal/tasks"
 	"github.com/ben-fourie/flow-cli/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -30,17 +33,33 @@ func Execute() {
 }
 
 func runDashboard(_ *cobra.Command, _ []string) error {
-	// Resolve the repo root (empty string if not inside a repo — that's fine).
 	repoRoot, _ := igit.RepoRoot()
 
 	cfg, err := config.Load(repoRoot)
 	if err != nil {
-		// Config errors are non-fatal; warn and continue with defaults.
 		fmt.Fprintf(os.Stderr, "warning: could not load config: %v\n", err)
 		cfg = config.Default
 	}
 
-	provider := tasks.NewMockProvider()
+	kr := keychain.New()
+
+	registry := providers.NewRegistry()
+	registry.Register("mock", func(c config.Config, k *keychain.Keychain) (tasks.Provider, bool, error) {
+		return tasks.NewMockProvider(), true, nil
+	})
+	registry.Register("jira", jira.New)
+
+	ps, buildErr := registry.Build(cfg, kr)
+	if buildErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", buildErr)
+	}
+
+	// Fall back to mock when no real providers are configured.
+	if len(ps) == 0 {
+		ps = append(ps, tasks.NewMockProvider())
+	}
+
+	provider := providers.NewComposite(ps)
 
 	model, err := ui.New(provider, cfg)
 	if err != nil {

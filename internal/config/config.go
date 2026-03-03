@@ -16,7 +16,29 @@ import (
 
 // Config is the top-level application configuration.
 type Config struct {
-	Branch BranchConfig `yaml:"branch"`
+	Branch    BranchConfig    `yaml:"branch"`
+	Providers ProvidersConfig `yaml:"providers,omitempty"`
+}
+
+// ProvidersConfig lists which task providers are active and holds their settings.
+// The API token for each provider is stored separately in the OS keychain,
+// never in this file.
+type ProvidersConfig struct {
+	// Active is the ordered list of provider names to load.
+	// Built-in values: "mock". Add "jira" after running 'flow auth jira'.
+	Active []string    `yaml:"active,omitempty"`
+	Jira   *JiraConfig `yaml:"jira,omitempty"`
+}
+
+// JiraConfig holds the connection settings for a Jira Cloud instance.
+type JiraConfig struct {
+	// BaseURL is the root URL of the Jira instance, e.g. https://yourco.atlassian.net
+	BaseURL string `yaml:"base_url"`
+	// Email is the Atlassian account email used for API authentication.
+	Email string `yaml:"email"`
+	// Projects optionally filters results to specific project keys.
+	// Leave empty to show all issues assigned to the current user.
+	Projects []string `yaml:"projects,omitempty"`
 }
 
 // BranchConfig controls how Git branch names are generated from tasks.
@@ -70,6 +92,9 @@ var Default = Config{
 		Separator: "-",
 		MaxLength: 0,
 		TypeMap:   DefaultTypeMap,
+	},
+	Providers: ProvidersConfig{
+		Active: []string{"mock"},
 	},
 }
 
@@ -189,6 +214,13 @@ func merge(base, override Config) Config {
 	}
 	if b.TypeMap != nil {
 		result.Branch.TypeMap = b.TypeMap
+	}
+	p := override.Providers
+	if len(p.Active) > 0 {
+		result.Providers.Active = p.Active
+	}
+	if p.Jira != nil {
+		result.Providers.Jira = p.Jira
 	}
 	return result
 }

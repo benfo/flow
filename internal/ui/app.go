@@ -1,13 +1,13 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/ben-fourie/flow-cli/internal/config"
 	igit "github.com/ben-fourie/flow-cli/internal/git"
 	"github.com/ben-fourie/flow-cli/internal/tasks"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,76 +18,102 @@ import (
 type viewState int
 
 const (
-	viewList   viewState = iota
-	viewDetail viewState = iota
-	viewBranch viewState = iota
+	viewLoading viewState = iota
+	viewList    viewState = iota
+	viewDetail  viewState = iota
+	viewBranch  viewState = iota
+	viewError   viewState = iota
 )
 
 // verticalOverhead is the number of rows consumed by the header, two separator
 // lines, and the footer bar that surround the main content area.
 const verticalOverhead = 4 // header(1) + separator(1) + separator(1) + footer(1)
 
+// tasksLoadedMsg carries the result of an async task fetch.
+type tasksLoadedMsg struct {
+	tasks []tasks.Task
+	err   error
+}
+
 // ── Root model ────────────────────────────────────────────────────────────────
 
 // Model is the root Bubble Tea model for the flow dashboard.
-// It owns the list and detail sub-models and handles view-switching.
 type Model struct {
 	list          list.Model
 	detail        viewport.Model
 	branchInput   textinput.Model
+	spinner       spinner.Model
 	cfg           config.Config
+	provider      tasks.Provider
 	state         viewState
 	tasks         []tasks.Task
 	selectedTask  *tasks.Task
 	statusMessage string // transient feedback shown in the footer
+	loadErr       string // shown in viewError
 	width         int
 	height        int
 }
 
-// New constructs the Model by fetching tasks from the given provider.
-// Returns an error if the provider fails so the caller can surface it cleanly.
+// New constructs the Model. Task loading is deferred to Init() so the UI
+// can show a spinner while the network request is in flight.
 func New(provider tasks.Provider, cfg config.Config) (Model, error) {
-	taskList, err := provider.GetTasks()
-	if err != nil {
-		return Model{}, fmt.Errorf("loading tasks from %s provider: %w", provider.Name(), err)
-	}
-
-	items := make([]list.Item, len(taskList))
-	for i, t := range taskList {
-		items[i] = taskItem{task: t}
-	}
-
-	l := list.New(items, taskDelegate{}, 0, 0)
-	l.SetShowTitle(false)        // we render our own header
-	l.SetShowHelp(false)         // we render our own footer
+	l := list.New(nil, taskDelegate{}, 0, 0)
+	l.SetShowTitle(false)
+	l.SetShowHelp(false)
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
-	l.Styles.StatusBar        = dimStyle
-	l.Styles.FilterPrompt     = dimStyle.Bold(true)
-	l.Styles.FilterCursor     = lipgloss.NewStyle().Foreground(colorPrimary)
+	l.Styles.StatusBar             = dimStyle
+	l.Styles.FilterPrompt          = dimStyle.Bold(true)
+	l.Styles.FilterCursor          = lipgloss.NewStyle().Foreground(colorPrimary)
 	l.Styles.ActivePaginationDot   = lipgloss.NewStyle().Foreground(colorPrimary)
 	l.Styles.InactivePaginationDot = lipgloss.NewStyle().Foreground(colorBorder)
 
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = lipgloss.NewStyle().Foreground(colorPrimary)
+
 	return Model{
-		list:  l,
-		tasks: taskList,
-		cfg:   cfg,
-		state: viewList,
+		list:     l,
+		spinner:  sp,
+		cfg:      cfg,
+		provider: provider,
+		state:    viewLoading,
 	}, nil
 }
 
 // ── tea.Model interface ───────────────────────────────────────────────────────
 
-// Init satisfies tea.Model. No IO commands are needed at startup.
+// Init kicks off the async task load and starts the spinner animation.
 func (m Model) Init() tea.Cmd {
-	return nil
+	return tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider))
 }
+
+// loadTasksCmd returns a Cmd that fetches tasks in the background.
+func loadTasksCmd(p tasks.Provider) tea.Cmd {
+	return func() tea.Msg {
+		t, err := p.GetTasks()
+		return tasksLoadedMsg{tasks: t, err: err}
+	}
+}
+
 
 // Update is the single entry point for all incoming messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Window resize is handled regardless of active view.
 	if resize, ok := msg.(tea.WindowSizeMsg); ok {
 		return m.handleResize(resize), nil
+	}
+
+	// Handle async task load result.
+	if loaded, ok := msg.(tasksLoadedMsg); ok {
+		return m.handleTasksLoaded(loaded)
+	}
+
+	// Keep the spinner ticking while loading.
+	if m.state == viewLoading {
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	}
 
 	switch m.state {
@@ -97,24 +123,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateDetailView(msg)
 	case viewBranch:
 		return m.updateBranchView(msg)
+	case viewError:
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "r":
+				m.state = viewLoading
+				return m, tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider))
+			}
+		}
 	}
+	return m, nil
+}
+
+// handleTasksLoaded populates the list when the async fetch completes.
+func (m Model) handleTasksLoaded(msg tasksLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.loadErr = msg.err.Error()
+		m.state = viewError
+		return m, nil
+	}
+
+	items := make([]list.Item, len(msg.tasks))
+	for i, t := range msg.tasks {
+		items[i] = taskItem{task: t}
+	}
+	m.list.SetItems(items)
+	m.tasks = msg.tasks
+	m.state = viewList
 	return m, nil
 }
 
 // View renders the current view to a string for the terminal.
 func (m Model) View() string {
-	// Show a blank frame until the terminal size is known.
 	if m.width == 0 {
 		return ""
 	}
 
 	switch m.state {
+	case viewLoading:
+		return m.renderLoadingView()
 	case viewList:
 		return m.renderListView()
 	case viewDetail:
 		return m.renderDetailView()
 	case viewBranch:
 		return m.renderBranchView()
+	case viewError:
+		return m.renderErrorView()
 	}
 	return ""
 }
@@ -140,14 +197,15 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 
 func (m Model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
-		// Only intercept keys when the list is not in filter-input mode,
-		// so that 'q' and 'enter' are available to the filter prompt.
 		if m.list.FilterState() != list.Filtering {
 			switch key.String() {
 			case "q", "ctrl+c":
 				return m, tea.Quit
 			case "enter":
 				return m.openDetail()
+			case "r":
+				m.state = viewLoading
+				return m, tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider))
 			}
 		}
 	}
@@ -172,10 +230,37 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) renderLoadingView() string {
+	sep := renderSeparator(m.width)
+	header := renderHeaderBar("⚡ flow", m.width)
+	footer := renderFooterBar("loading…", m.width)
+
+	content := lipgloss.NewStyle().
+		Padding(2, 2).
+		Foreground(colorText).
+		Render(m.spinner.View() + "  Fetching tasks…")
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, sep, content, sep, footer)
+}
+
+func (m Model) renderErrorView() string {
+	sep := renderSeparator(m.width)
+	header := renderHeaderBar("⚡ flow", m.width)
+	footer := renderFooterBar("r  retry   q  quit", m.width)
+
+	content := lipgloss.NewStyle().Padding(2, 2).Render(
+		lipgloss.NewStyle().Foreground(colorPriorityCritical).Bold(true).Render("✗  Failed to load tasks") +
+			"\n\n" +
+			dimStyle.Render(m.loadErr),
+	)
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, sep, content, sep, footer)
+}
+
 func (m Model) renderListView() string {
 	header := renderHeaderBar("⚡ flow", m.width)
 	sep := renderSeparator(m.width)
-	footer := renderFooterBar("↑/↓  navigate   enter  open   /  filter   esc  clear filter   q  quit", m.width)
+	footer := renderFooterBar("↑/↓  navigate   enter  open   /  filter   esc  clear filter   r  refresh   q  quit", m.width)
 
 	var content string
 	if len(m.list.VisibleItems()) == 0 && m.list.FilterState() == list.FilterApplied {
