@@ -100,6 +100,12 @@ type taskDeletedMsg struct {
 	err      error
 }
 
+// parentTaskLoadedMsg carries the result of asynchronously fetching a parent task.
+type parentTaskLoadedMsg struct {
+	task tasks.Task
+	err  error
+}
+
 // currentBranchMsg carries the result of the async git branch detection.
 type currentBranchMsg struct {
 	branch     string // raw branch name, empty if not in a repo
@@ -259,6 +265,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle async task delete result.
 	if taskDel, ok := msg.(taskDeletedMsg); ok {
 		return m.handleTaskDeleted(taskDel)
+	}
+
+	// Handle async parent task fetch result.
+	if parent, ok := msg.(parentTaskLoadedMsg); ok {
+		return m.handleParentLoaded(parent)
 	}
 
 	// Handle git branch detection result.

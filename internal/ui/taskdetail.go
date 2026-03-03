@@ -58,6 +58,10 @@ func renderTaskDetail(t tasks.Task, width int, activeBranch string) string {
 	writeField(&sb, "Project", t.Project)
 	writeField(&sb, "Assignee", t.Assignee)
 
+	if t.ParentID != "" {
+		writeField(&sb, "Parent", dimStyle.Render(t.ParentID))
+	}
+
 	if activeBranch != "" {
 		branchVal := lipgloss.NewStyle().Foreground(colorSubtle).Render("⎇  " + activeBranch)
 		writeField(&sb, "Branch", branchVal)
@@ -237,6 +241,10 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.openCommentsView()
 		case "n":
 			return m.openCreateView(m.selectedTask)
+		case "p":
+			if m.selectedTask != nil && m.selectedTask.ParentID != "" {
+				return m.openParentDetail()
+			}
 		case "D":
 			if _, canDelete := m.provider.(tasks.TaskDeleter); canDelete && m.selectedTask != nil {
 				m.confirmingDelete = true
@@ -291,6 +299,43 @@ func (m Model) openSubtaskDetail(t tasks.Task) (tea.Model, tea.Cmd) {
 	return m.openDetailForTask(t, viewDetail)
 }
 
+// openParentDetail navigates from a subtask up to its parent task.
+// It looks up the parent in m.tasks first; if not found and the provider
+// supports ParentFetcher, it fires an async fetch.
+func (m Model) openParentDetail() (tea.Model, tea.Cmd) {
+	parentID := m.selectedTask.ParentID
+	// Fast path: parent already in the loaded task list.
+	for _, t := range m.tasks {
+		if t.ID == parentID {
+			return m.openSubtaskDetail(t) // reuse same nav-stack pattern
+		}
+	}
+	// Slow path: fetch the parent asynchronously.
+	if fetcher, ok := m.provider.(tasks.ParentFetcher); ok {
+		m.statusMessage = "Loading parent…"
+		return m, loadParentTaskCmd(fetcher, parentID)
+	}
+	m.statusMessage = "Parent not available in current view"
+	return m, nil
+}
+
+// loadParentTaskCmd fetches a single task by ID asynchronously.
+func loadParentTaskCmd(f tasks.ParentFetcher, taskID string) tea.Cmd {
+	return func() tea.Msg {
+		t, err := f.GetTask(taskID)
+		return parentTaskLoadedMsg{task: t, err: err}
+	}
+}
+
+// handleParentLoaded handles the async result of fetching a parent task.
+func (m Model) handleParentLoaded(msg parentTaskLoadedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMessage = "Could not load parent: " + msg.err.Error()
+		return m, nil
+	}
+	return m.openSubtaskDetail(msg.task)
+}
+
 // handleSubtasksLoaded stores fetched subtasks and adjusts viewport height.
 func (m Model) handleSubtasksLoaded(msg subtasksLoadedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil || len(msg.tasks) == 0 {
@@ -341,6 +386,9 @@ func (m Model) renderDetailView() string {
 	}
 	if len(m.subtasks) > 0 {
 		hints = append(hints, "tab  subtasks")
+	}
+	if m.selectedTask != nil && m.selectedTask.ParentID != "" {
+		hints = append(hints, "p  parent")
 	}
 	hints = append(hints, "q  quit")
 

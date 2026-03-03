@@ -528,6 +528,15 @@ func (p *Provider) DeleteTask(taskID string) error {
 	return p.client.deleteIssue(taskID)
 }
 
+// GetTask satisfies ParentFetcher.
+func (p *Provider) GetTask(taskID string) (tasks.Task, error) {
+	iss, err := p.client.getIssue(taskID)
+	if err != nil {
+		return tasks.Task{}, err
+	}
+	return mapIssue(*iss, p.cfg.BaseURL), nil
+}
+
 // formatJiraTime converts a Jira ISO timestamp to a short display string.
 func formatJiraTime(s string) string {
 	// Jira returns times like "2024-01-15T09:30:00.000+0000". We trim to date+time.

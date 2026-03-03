@@ -201,3 +201,11 @@ type TaskDeleter interface {
 	// upstream provider.
 	DeleteTask(taskID string) error
 }
+
+// ParentFetcher is an optional capability a Provider may implement to fetch a
+// single task by ID. Used to navigate from a subtask up to its parent when the
+// parent is not present in the current task list.
+type ParentFetcher interface {
+	// GetTask returns the task with the given ID.
+	GetTask(taskID string) (Task, error)
+}

@@ -471,6 +471,16 @@ func (m *MockProvider) DeleteTask(taskID string) error {
 	return nil
 }
 
+// GetTask satisfies ParentFetcher.
+func (m *MockProvider) GetTask(taskID string) (Task, error) {
+	for _, t := range m.tasks {
+		if t.ID == taskID {
+			return t, nil
+		}
+	}
+	return Task{}, fmt.Errorf("task %s not found", taskID)
+}
+
 // GetComments satisfies CommentLister.
 func (m *MockProvider) GetComments(taskID string) ([]Comment, error) {
 	return m.comments[taskID], nil
