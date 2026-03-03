@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/ben-fourie/flow-cli/internal/config"
@@ -103,6 +104,12 @@ type taskDeletedMsg struct {
 	err      error
 }
 
+// currentBranchMsg carries the result of the async git branch detection.
+type currentBranchMsg struct {
+	branch     string // raw branch name, empty if not in a repo
+	activeTask string // task ID extracted from branch name, may be empty
+}
+
 // detailFocusArea identifies which region of the detail view has keyboard focus.
 type detailFocusArea int
 
@@ -138,10 +145,16 @@ type Model struct {
 	detailReturnTask        *tasks.Task // parent task to restore when returning to viewDetail
 	detailParentReturnState viewState   // detailReturnState of the parent task
 
-	commentsModel TaskCommentsModel
-	confirmingDelete bool   // true while waiting for delete confirmation in detail view
-	statusMessage string          // transient feedback shown in the footer
-	loadErr       string          // shown in viewError
+	commentsModel    TaskCommentsModel
+	confirmingDelete bool // true while waiting for delete confirmation in detail view
+
+	activeBranch            string // currently checked-out git branch name
+	activeTaskID            string // task ID extracted from activeBranch
+	confirmingCheckout      bool   // true when offering to checkout an existing branch
+	pendingTransitionPrompt bool   // true when offering to transition after branch create
+
+	statusMessage string // transient feedback shown in the footer
+	loadErr       string // shown in viewError
 	width         int
 	height        int
 }
@@ -177,7 +190,23 @@ func New(provider tasks.Provider, cfg config.Config) (Model, error) {
 
 // Init kicks off the async task load and starts the spinner animation.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider))
+	return tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider), currentBranchCmd())
+}
+
+// currentBranchCmd detects the checked-out branch and extracts the task ID.
+func currentBranchCmd() tea.Cmd {
+	return func() tea.Msg {
+		branch := igit.CurrentBranch()
+		return currentBranchMsg{branch: branch, activeTask: extractTaskID(branch)}
+	}
+}
+
+// taskIDPattern matches provider-style task IDs such as PROJ-42 or FLOW-001.
+var taskIDPattern = regexp.MustCompile(`[A-Z][A-Z0-9]+-[0-9]+`)
+
+// extractTaskID scans a branch name for a task ID (e.g. "feature/PROJ-42-..." → "PROJ-42").
+func extractTaskID(branch string) string {
+	return taskIDPattern.FindString(strings.ToUpper(branch))
 }
 
 // loadTasksCmd returns a Cmd that fetches tasks in the background.
@@ -252,6 +281,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTaskDeleted(taskDel)
 	}
 
+	// Handle git branch detection result.
+	if branch, ok := msg.(currentBranchMsg); ok {
+		m.activeBranch = branch.branch
+		m.activeTaskID = branch.activeTask
+		return m, nil
+	}
+
+	// Handle auto-transition after branch create (find + apply In Progress transition).
+	if auto, ok := msg.(autoTransitionMsg); ok {
+		if auto.err != nil {
+			m.statusMessage = "✓  Branch created  (could not load transitions)"
+			return m, nil
+		}
+		for _, t := range auto.transitions {
+			if t.To == tasks.StatusInProgress {
+				return m, transitionTaskCmd(auto.updater, auto.taskID, t.ID)
+			}
+		}
+		// No In Progress transition available — silently skip.
+		return m, nil
+	}
+
 	// Keep the spinner ticking while loading.
 	if m.state == viewLoading {
 		var cmd tea.Cmd
@@ -300,7 +351,7 @@ func (m Model) handleTasksLoaded(msg tasksLoadedMsg) (tea.Model, tea.Cmd) {
 
 	items := make([]list.Item, len(msg.tasks))
 	for i, t := range msg.tasks {
-		items[i] = taskItem{task: t}
+		items[i] = m.makeTaskItem(t)
 	}
 	m.list.SetItems(items)
 	m.tasks = msg.tasks
@@ -419,7 +470,7 @@ func (m Model) openDetailForTask(t tasks.Task, returnTo viewState) (tea.Model, t
 
 	contentHeight := m.height - verticalOverhead
 	m.detail = viewport.New(m.width, contentHeight)
-	m.detail.SetContent(renderTaskDetail(t, m.width))
+	m.detail.SetContent(renderTaskDetail(t, m.width, m.branchForTask(t.ID)))
 
 	// Lazily fetch subtasks if the provider supports it.
 	var cmd tea.Cmd
@@ -729,6 +780,56 @@ func (m Model) openBranchView() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateBranchView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle "checkout existing branch?" prompt.
+	if m.confirmingCheckout {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "y", "enter":
+				m.confirmingCheckout = false
+				name := strings.TrimSpace(m.branchInput.Value())
+				if err := igit.CheckoutBranch(name); err != nil {
+					m.statusMessage = "✗  " + err.Error()
+					m.state = viewDetail
+					return m, nil
+				}
+				m.activeBranch = name
+				m.activeTaskID = extractTaskID(name)
+				m.statusMessage = "✓  Switched to branch: " + name
+				m.state = viewDetail
+				return m, nil
+			case "n", "esc":
+				m.confirmingCheckout = false
+				return m, nil
+			}
+		}
+		return m, nil
+	}
+
+	// Handle "move to In Progress?" prompt.
+	if m.pendingTransitionPrompt {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "y", "enter":
+				m.pendingTransitionPrompt = false
+				name := strings.TrimSpace(m.branchInput.Value())
+				m.statusMessage = "✓  Branch created: " + name
+				m.state = viewDetail
+				// Fire transitions load — handleTransitionsLoaded will auto-apply In Progress.
+				if su, ok := m.provider.(tasks.StatusUpdater); ok && m.selectedTask != nil {
+					return m, loadTransitionsForAutoCmd(su, m.selectedTask.ID)
+				}
+				return m, nil
+			case "n", "esc":
+				m.pendingTransitionPrompt = false
+				name := strings.TrimSpace(m.branchInput.Value())
+				m.statusMessage = "✓  Branch created: " + name
+				m.state = viewDetail
+				return m, nil
+			}
+		}
+		return m, nil
+	}
+
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "ctrl+c":
@@ -755,8 +856,29 @@ func (m Model) confirmBranch() (tea.Model, tea.Cmd) {
 	}
 
 	if err := igit.CreateBranch(name); err != nil {
+		// Detect "already exists" and offer to switch instead.
+		if strings.Contains(err.Error(), "already exists") {
+			m.confirmingCheckout = true
+			m.statusMessage = ""
+			return m, nil
+		}
 		m.statusMessage = "✗  " + err.Error()
 		return m, nil
+	}
+
+	// Branch created — update active branch state immediately.
+	m.activeBranch = name
+	m.activeTaskID = extractTaskID(name)
+
+	// If provider supports transitions and task isn't already In Progress,
+	// offer to move the task to In Progress.
+	if m.selectedTask != nil {
+		if _, canTransition := m.provider.(tasks.StatusUpdater); canTransition &&
+			m.selectedTask.Status != tasks.StatusInProgress {
+			m.pendingTransitionPrompt = true
+			m.statusMessage = ""
+			return m, nil
+		}
 	}
 
 	m.statusMessage = "✓  Branch created: " + name
@@ -771,7 +893,17 @@ func (m Model) renderBranchView() string {
 
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  new branch", m.width)
-	footer := renderFooterBar("enter  confirm   esc  cancel", m.width)
+
+	var footerText string
+	switch {
+	case m.confirmingCheckout:
+		footerText = renderBranchPrompt("Branch exists — switch to it?")
+	case m.pendingTransitionPrompt:
+		footerText = renderBranchPrompt("Move " + m.selectedTask.ID + " to In Progress?")
+	default:
+		footerText = "enter  confirm   esc  cancel"
+	}
+	footer := renderFooterBar(footerText, m.width)
 
 	label := lipgloss.NewStyle().
 		Foreground(colorSubtle).
@@ -892,12 +1024,12 @@ func (m Model) handleTaskSaved(msg taskSavedMsg) (tea.Model, tea.Cmd) {
 	}
 	items := make([]list.Item, len(m.tasks))
 	for i, t := range m.tasks {
-		items[i] = taskItem{task: t}
+		items[i] = m.makeTaskItem(t)
 	}
 	m.list.SetItems(items)
 
 	// Refresh the detail view content with updated task.
-	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width))
+	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width, m.branchForTask(m.selectedTask.ID)))
 
 	m.statusMessage = "✓  Saved"
 	m.state = viewDetail
@@ -1050,7 +1182,7 @@ func (m Model) handleTaskDeleted(msg taskDeletedMsg) (tea.Model, tea.Cmd) {
 	m.tasks = updated
 	items := make([]list.Item, len(m.tasks))
 	for i, t := range m.tasks {
-		items[i] = taskItem{task: t}
+		items[i] = m.makeTaskItem(t)
 	}
 	m.list.SetItems(items)
 
@@ -1086,7 +1218,7 @@ func (m Model) handleTaskCreated(msg taskCreatedMsg) (tea.Model, tea.Cmd) {
 	m.tasks = append(m.tasks, msg.task)
 	items := make([]list.Item, len(m.tasks))
 	for i, t := range m.tasks {
-		items[i] = taskItem{task: t}
+		items[i] = m.makeTaskItem(t)
 	}
 	m.list.SetItems(items)
 
@@ -1165,6 +1297,22 @@ func loadTransitionsCmd(u tasks.StatusUpdater, taskID string) tea.Cmd {
 	}
 }
 
+// autoTransitionMsg carries transitions loaded specifically to auto-apply In Progress.
+type autoTransitionMsg struct {
+	updater     tasks.StatusUpdater
+	taskID      string
+	transitions []tasks.StatusTransition
+	err         error
+}
+
+// loadTransitionsForAutoCmd fetches transitions with the intent of auto-applying In Progress.
+func loadTransitionsForAutoCmd(u tasks.StatusUpdater, taskID string) tea.Cmd {
+	return func() tea.Msg {
+		ts, err := u.GetTransitions(taskID)
+		return autoTransitionMsg{updater: u, taskID: taskID, transitions: ts, err: err}
+	}
+}
+
 func transitionTaskCmd(u tasks.StatusUpdater, taskID, transitionID string) tea.Cmd {
 	return func() tea.Msg {
 		t, err := u.TransitionTask(taskID, transitionID)
@@ -1210,10 +1358,10 @@ func (m Model) handleTaskTransitioned(msg taskTransitionedMsg) (tea.Model, tea.C
 	}
 	items := make([]list.Item, len(m.tasks))
 	for i, t := range m.tasks {
-		items[i] = taskItem{task: t}
+		items[i] = m.makeTaskItem(t)
 	}
 	m.list.SetItems(items)
-	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width))
+	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width, m.branchForTask(m.selectedTask.ID)))
 
 	m.statusMessage = "✓  Status changed to: " + msg.task.Status.String()
 	m.state = viewDetail
@@ -1426,10 +1574,10 @@ func (m Model) handleSelfAssigned(msg selfAssignedMsg) (tea.Model, tea.Cmd) {
 	}
 	items := make([]list.Item, len(m.tasks))
 	for i, t := range m.tasks {
-		items[i] = taskItem{task: t}
+		items[i] = m.makeTaskItem(t)
 	}
 	m.list.SetItems(items)
-	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width))
+	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width, m.branchForTask(m.selectedTask.ID)))
 
 	m.statusMessage = "✓  Assigned to you"
 	return m, nil
@@ -1705,6 +1853,20 @@ func (m Model) renderCommentsView() string {
 }
 
 func renderHeaderBar(title string, width int) string {	return appHeaderStyle.Width(width).Render(title)
+}
+
+// makeTaskItem builds a taskItem, populating activeBranch when the task ID
+// matches the currently checked-out branch.
+func (m Model) makeTaskItem(t tasks.Task) taskItem {
+	return taskItem{task: t, activeBranch: m.branchForTask(t.ID)}
+}
+
+// branchForTask returns activeBranch if it matches taskID, otherwise "".
+func (m Model) branchForTask(taskID string) string {
+	if m.activeTaskID != "" && taskID == m.activeTaskID {
+		return m.activeBranch
+	}
+	return ""
 }
 
 func renderFooterBar(help string, width int) string {

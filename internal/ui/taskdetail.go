@@ -37,7 +37,8 @@ func openURL(url string) tea.Cmd {
 
 // renderTaskDetail builds the full string content for the detail viewport.
 // width is used to draw horizontal dividers that span the available terminal width.
-func renderTaskDetail(t tasks.Task, width int) string {
+// activeBranch is shown in the metadata when non-empty.
+func renderTaskDetail(t tasks.Task, width int, activeBranch string) string {
 	var sb strings.Builder
 
 	divider := dividerStyle.Render(strings.Repeat("─", max(0, width-4)))
@@ -54,6 +55,11 @@ func renderTaskDetail(t tasks.Task, width int) string {
 	writeField(&sb, "Priority", renderPriorityBadge(t.Priority))
 	writeField(&sb, "Project", t.Project)
 	writeField(&sb, "Assignee", t.Assignee)
+
+	if activeBranch != "" {
+		branchVal := lipgloss.NewStyle().Foreground(colorSubtle).Render("⎇  " + activeBranch)
+		writeField(&sb, "Branch", branchVal)
+	}
 
 	if t.URL != "" {
 		writeField(&sb, "URL", dimStyle.Render(t.URL))

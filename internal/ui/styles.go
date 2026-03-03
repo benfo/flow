@@ -150,6 +150,18 @@ func renderDeleteConfirm(taskID string) string {
 	)
 }
 
+// renderBranchPrompt renders an inline "question? y / n" bar used in the branch view.
+func renderBranchPrompt(question string) string {
+	label := lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render(question)
+	yes := lipgloss.NewStyle().Foreground(colorStatusDone).Bold(true).Render("y")
+	no := lipgloss.NewStyle().Foreground(colorSubtle).Render("n")
+	hint := lipgloss.NewStyle().Foreground(colorSubtle).Render(" yes  /  ")
+	hintNo := lipgloss.NewStyle().Foreground(colorSubtle).Render(" no")
+	return lipgloss.NewStyle().Padding(0, 2).Render(
+		label + "   " + yes + hint + no + hintNo,
+	)
+}
+
 
 // fitHints joins hints with sep, greedily including as many as fit within
 // maxWidth visible characters. If any hints are dropped a "…" is appended.

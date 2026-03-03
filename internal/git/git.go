@@ -22,10 +22,29 @@ func RepoRoot() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// CurrentBranch returns the name of the currently checked-out branch.
+// Returns an empty string (no error) when not in a repo or in detached HEAD state.
+func CurrentBranch() string {
+	out, err := exec.Command("git", "branch", "--show-current").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // CreateBranch creates and checks out a new branch with the given name.
 // Returns an error if the branch already exists or git is unavailable.
 func CreateBranch(name string) error {
 	out, err := exec.Command("git", "checkout", "-b", name).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// CheckoutBranch switches to an existing branch with the given name.
+func CheckoutBranch(name string) error {
+	out, err := exec.Command("git", "checkout", name).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}

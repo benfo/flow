@@ -15,7 +15,8 @@ import (
 
 // taskItem wraps a Task to satisfy the list.Item interface.
 type taskItem struct {
-	task tasks.Task
+	task         tasks.Task
+	activeBranch string // set when this task's ID matches the checked-out branch
 }
 
 // FilterValue is used by the Bubbles list's built-in fuzzy filter.
@@ -67,7 +68,12 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		idStr+"  ",
 		titleStr,
 	)
+
 	row2 := indent + statusBadge + "   " + priorityBadge
+	if t.activeBranch != "" {
+		branchLabel := lipgloss.NewStyle().Foreground(colorSubtle).Render("⎇  " + t.activeBranch)
+		row2 += "   " + branchLabel
+	}
 
 	fmt.Fprintln(w, row1)
 	fmt.Fprint(w, row2)
