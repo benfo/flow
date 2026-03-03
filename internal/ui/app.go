@@ -1105,9 +1105,6 @@ func (m Model) handleSearchResults(msg searchResultsMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.searchModel = m.searchModel.SetResults(msg.tasks)
-	// Keep focus on input so the user can refine the query immediately,
-	// then press ↓ to browse results.
-	m.searchModel = m.searchModel.FocusInput()
 	return m, nil
 }
 
@@ -1126,13 +1123,10 @@ func (m Model) updateSearchView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = m.searchReturnState
 			return m, nil
 		case "enter":
-			if m.searchModel.focus == searchFocusResults {
-				// Open the selected result.
-				if t, ok := m.searchModel.Selected(); ok {
-					return m.openDetailForTask(t)
-				}
+			// Open the selected result if one is highlighted; otherwise search.
+			if t, ok := m.searchModel.Selected(); ok {
+				return m.openDetailForTask(t)
 			}
-			// Input focused — run the search.
 			q := m.searchModel.Query()
 			if q == "" {
 				return m, nil
@@ -1140,52 +1134,30 @@ func (m Model) updateSearchView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchLoading = true
 			searcher := m.provider.(tasks.Searcher)
 			return m, tea.Batch(m.spinner.Tick, searchCmd(searcher, q))
-		case "up", "k":
-			if m.searchModel.focus == searchFocusResults {
-				if m.searchModel.cursor == 0 {
-					// At the top of results — jump back to input.
-					m.searchModel = m.searchModel.FocusInput()
-				} else {
-					m.searchModel = m.searchModel.MoveUp()
-				}
-			}
+		case "up":
+			m.searchModel = m.searchModel.MoveUp()
 			return m, nil
-		case "down", "j":
-			if m.searchModel.focus == searchFocusInput {
-				// Move into results if any exist.
-				if len(m.searchModel.results) > 0 {
-					m.searchModel = m.searchModel.SetResults(m.searchModel.results)
-				}
-			} else {
-				m.searchModel = m.searchModel.MoveDown()
-			}
+		case "down":
+			m.searchModel = m.searchModel.MoveDown()
 			return m, nil
-		case "ctrl+d", "pgdown":
-			if m.searchModel.focus == searchFocusResults {
-				m.searchModel = m.searchModel.PageDown()
-			}
+		case "pgdown":
+			m.searchModel = m.searchModel.PageDown()
 			return m, nil
-		case "ctrl+u", "pgup":
-			if m.searchModel.focus == searchFocusResults {
-				m.searchModel = m.searchModel.PageUp()
-			}
-			return m, nil
-		case "g":
-			if m.searchModel.focus == searchFocusResults {
-				m.searchModel = m.searchModel.JumpToTop()
-			}
-			return m, nil
-		case "G":
-			if m.searchModel.focus == searchFocusResults {
-				m.searchModel = m.searchModel.JumpToBottom()
-			}
+		case "pgup":
+			m.searchModel = m.searchModel.PageUp()
 			return m, nil
 		}
 	}
 
-	// Delegate remaining messages to the text input (always active).
+	// All other keys go to the text input. If the value changes, reset the
+	// cursor so the next enter runs a fresh search rather than opening a
+	// stale result.
+	prev := m.searchModel.Query()
 	var cmd tea.Cmd
 	m.searchModel.input, cmd = m.searchModel.input.Update(msg)
+	if m.searchModel.Query() != prev {
+		m.searchModel = m.searchModel.ResetCursor()
+	}
 	return m, cmd
 }
 
@@ -1194,13 +1166,10 @@ func (m Model) renderSearchView() string {
 	header := renderHeaderBar("⚡ flow  /  find", m.width)
 
 	var footerText string
-	switch {
-	case m.searchLoading:
+	if m.searchLoading {
 		footerText = "searching…"
-	case m.searchModel.focus == searchFocusResults:
-		footerText = "↑/↓  navigate   ctrl+d/u  page   g/G  top/bottom   enter  open   esc  back"
-	default:
-		footerText = "enter  search   ↓  into results   esc  back"
+	} else {
+		footerText = "enter  search/open   ↑/↓  navigate results   pgup/pgdn  page   esc  back"
 	}
 	footer := renderFooterBar(footerText, m.width)
 

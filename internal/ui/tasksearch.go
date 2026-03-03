@@ -8,21 +8,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// searchFocus identifies which region of the search view has keyboard focus.
-type searchFocus int
-
-const (
-	searchFocusInput   searchFocus = iota
-	searchFocusResults searchFocus = iota
-)
-
 // TaskSearchModel is the child model for viewSearch. It holds a text input for
 // the query and the result slice returned by the provider's Search() call.
+// There are no focus modes — the input always accepts typing, and arrow keys
+// always navigate the results list.
 type TaskSearchModel struct {
 	input   textinput.Model
 	results []tasks.Task
-	cursor  int
-	focus   searchFocus
+	cursor  int // -1 means no result selected
 	width   int
 	height  int
 }
@@ -34,27 +27,31 @@ func NewTaskSearchModel() TaskSearchModel {
 	ti.Focus()
 	ti.PromptStyle = dimStyle
 	ti.TextStyle = lipgloss.NewStyle().Foreground(colorText)
-	return TaskSearchModel{input: ti, focus: searchFocusInput}
+	return TaskSearchModel{input: ti, cursor: -1}
 }
 
-// Query returns the current trimmed input value.
+// Query returns the current input value.
 func (m TaskSearchModel) Query() string {
 	return m.input.Value()
 }
 
-// SetResults stores search results and shifts focus to the results list.
+// SetResults stores search results and resets the cursor to -1 so the next
+// enter fires a new search rather than opening a stale result.
 func (m TaskSearchModel) SetResults(results []tasks.Task) TaskSearchModel {
 	m.results = results
-	m.cursor = 0
-	if len(results) > 0 {
-		m.focus = searchFocusResults
-	}
+	m.cursor = -1
 	return m
 }
 
-// Selected returns the task under the cursor, if any.
+// ResetCursor clears the result selection when the query changes.
+func (m TaskSearchModel) ResetCursor() TaskSearchModel {
+	m.cursor = -1
+	return m
+}
+
+// Selected returns the task under the cursor, or false if none is selected.
 func (m TaskSearchModel) Selected() (tasks.Task, bool) {
-	if len(m.results) == 0 || m.cursor < 0 || m.cursor >= len(m.results) {
+	if m.cursor < 0 || m.cursor >= len(m.results) {
 		return tasks.Task{}, false
 	}
 	return m.results[m.cursor], true
@@ -63,11 +60,16 @@ func (m TaskSearchModel) Selected() (tasks.Task, bool) {
 func (m TaskSearchModel) MoveUp() TaskSearchModel {
 	if m.cursor > 0 {
 		m.cursor--
+	} else {
+		m.cursor = -1 // deselect when moving above first result
 	}
 	return m
 }
 
 func (m TaskSearchModel) MoveDown() TaskSearchModel {
+	if len(m.results) == 0 {
+		return m
+	}
 	if m.cursor < len(m.results)-1 {
 		m.cursor++
 	}
@@ -75,26 +77,20 @@ func (m TaskSearchModel) MoveDown() TaskSearchModel {
 }
 
 func (m TaskSearchModel) PageDown() TaskSearchModel {
-	pageSize := m.pageSize()
-	m.cursor = min(m.cursor+pageSize, len(m.results)-1)
+	if len(m.results) == 0 {
+		return m
+	}
+	start := max(m.cursor, 0)
+	m.cursor = min(start+m.pageSize(), len(m.results)-1)
 	return m
 }
 
 func (m TaskSearchModel) PageUp() TaskSearchModel {
-	pageSize := m.pageSize()
-	m.cursor = max(m.cursor-pageSize, 0)
-	return m
-}
-
-func (m TaskSearchModel) JumpToTop() TaskSearchModel {
-	m.cursor = 0
-	return m
-}
-
-func (m TaskSearchModel) JumpToBottom() TaskSearchModel {
-	if len(m.results) > 0 {
-		m.cursor = len(m.results) - 1
+	if m.cursor <= 0 {
+		m.cursor = -1
+		return m
 	}
+	m.cursor = max(m.cursor-m.pageSize(), 0)
 	return m
 }
 
@@ -104,12 +100,6 @@ func (m TaskSearchModel) pageSize() int {
 		ps = 5
 	}
 	return ps
-}
-
-func (m TaskSearchModel) FocusInput() TaskSearchModel {
-	m.focus = searchFocusInput
-	m.input.Focus()
-	return m
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
@@ -135,11 +125,8 @@ func (m TaskSearchModel) View() string {
 		Render(fmt.Sprintf("── Results (%d)", len(m.results)))
 	parts = append(parts, resultsHeader)
 
-	// Result rows — sliding window that keeps the cursor visible.
-	focused := m.focus == searchFocusResults
+	// Result rows — sliding window that keeps the selected row visible.
 	maxVisible := m.pageSize()
-
-	// Compute the start index so the cursor is always within the window.
 	start := 0
 	if m.cursor >= maxVisible {
 		start = m.cursor - maxVisible + 1
@@ -148,12 +135,12 @@ func (m TaskSearchModel) View() string {
 
 	for i := start; i < end; i++ {
 		t := m.results[i]
-		cursor := "  "
+		cursorStr := "  "
 		idStyle := lipgloss.NewStyle().Foreground(colorPrimary)
 		rowStyle := dimStyle
 
-		if focused && i == m.cursor {
-			cursor = lipgloss.NewStyle().Foreground(colorPrimary).Render("▶ ")
+		if i == m.cursor {
+			cursorStr = lipgloss.NewStyle().Foreground(colorPrimary).Render("▶ ")
 			rowStyle = lipgloss.NewStyle().Foreground(colorText).Bold(true)
 		}
 
@@ -162,7 +149,7 @@ func (m TaskSearchModel) View() string {
 		status := lipgloss.NewStyle().Foreground(statusColor(t.Status)).Render("● " + t.Status.String())
 		assignee := dimStyle.Render(t.Assignee)
 
-		row := cursor + id + "  " + title + "  " + status + "  " + assignee
+		row := cursorStr + id + "  " + title + "  " + status + "  " + assignee
 		parts = append(parts, lipgloss.NewStyle().Padding(0, 2).Render(row))
 	}
 
