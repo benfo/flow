@@ -24,6 +24,7 @@ const (
 	viewSearch   viewState = iota
 	viewStatus   viewState = iota
 	viewComments viewState = iota
+	viewTheme    viewState = iota
 	viewError    viewState = iota
 )
 
@@ -106,6 +107,11 @@ type parentTaskLoadedMsg struct {
 	err  error
 }
 
+// themeSavedMsg carries the result of saving the theme to the global config.
+type themeSavedMsg struct {
+	err error
+}
+
 // currentBranchMsg carries the result of the async git branch detection.
 type currentBranchMsg struct {
 	branch     string // raw branch name, empty if not in a repo
@@ -152,6 +158,9 @@ type Model struct {
 
 	showHelp     bool           // true when the help overlay is visible
 	helpViewport viewport.Model // scrollable content for the help overlay
+
+	themePickerCursor int    // selected row in the theme picker
+	themePreviousName string // theme name before picker opened (for esc revert)
 
 	activeBranch            string // currently checked-out git branch name
 	activeTaskID            string // task ID extracted from activeBranch
@@ -273,6 +282,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTaskDeleted(taskDel)
 	}
 
+	// Handle theme save result.
+	if ts, ok := msg.(themeSavedMsg); ok {
+		return m.handleThemeSaved(ts)
+	}
+
 	// Handle async parent task fetch result.
 	if parent, ok := msg.(parentTaskLoadedMsg); ok {
 		return m.handleParentLoaded(parent)
@@ -341,6 +355,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateStatusView(msg)
 	case viewComments:
 		return m.updateCommentsView(msg)
+	case viewTheme:
+		return m.updateThemeView(msg)
 	case viewError:
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
@@ -384,6 +400,8 @@ func (m Model) View() string {
 		return m.renderStatusView()
 	case viewComments:
 		return m.renderCommentsView()
+	case viewTheme:
+		return m.renderThemeView()
 	case viewError:
 		return m.renderErrorView()
 	}

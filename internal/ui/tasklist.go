@@ -128,6 +128,8 @@ func (m Model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "r":
 				m.state = viewLoading
 				return m, tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider))
+			case "T":
+				return m.openThemeView()
 			}
 		}
 	}
@@ -153,7 +155,7 @@ func (m Model) renderListView() string {
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
 		hints = append(hints, "n  new")
 	}
-	hints = append(hints, "?  help", "q  quit")
+	hints = append(hints, "T  theme", "?  help", "q  quit")
 	footer := renderFooterBar(fitHints(hints, "   ", m.width-2), m.width)
 
 	var content string

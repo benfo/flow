@@ -239,5 +239,8 @@ func merge(base, override Config) Config {
 			result.Providers.Jira = &merged
 		}
 	}
+	if override.Theme != "" {
+		result.Theme = override.Theme
+	}
 	return result
 }

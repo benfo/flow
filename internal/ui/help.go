@@ -36,6 +36,7 @@ var helpSections = []helpSection{
 			{"enter", "open task detail"},
 			{"f", "search tasks"},
 			{"b", "git branch view"},
+			{"T", "open theme picker"},
 		},
 	},
 	{
