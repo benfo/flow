@@ -49,13 +49,16 @@ func NewTaskEditModel(task tasks.Task) TaskEditModel {
 	ta.Placeholder = "Task description"
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
-	ta.FocusedStyle.Base = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary)
-	ta.BlurredStyle.Base = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorBorder)
 	ta.CharLimit = 0
+	// Remove built-in border — we render the border manually for consistent
+	// width handling across both fields.
+	ta.FocusedStyle.Base = lipgloss.NewStyle()
+	ta.BlurredStyle.Base = lipgloss.NewStyle()
+	// Colour the text content.
+	ta.FocusedStyle.Text = lipgloss.NewStyle().Foreground(colorText)
+	ta.BlurredStyle.Text = lipgloss.NewStyle().Foreground(colorText)
+	ta.FocusedStyle.Placeholder = dimStyle
+	ta.BlurredStyle.Placeholder = dimStyle
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -113,22 +116,16 @@ func (m TaskEditModel) Update(msg tea.Msg) (TaskEditModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.titleInput.Width = msg.Width - 8
-		m.descInput.SetWidth(msg.Width - 8)
-		descHeight := max(8, msg.Height-14)
-		m.descInput.SetHeight(descHeight)
+		m.applyWidths()
 		return m, nil
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "tab":
-			return m.toggleFocus(), textinput.Blink
-		case "shift+tab":
+		case "tab", "shift+tab":
 			return m.toggleFocus(), textinput.Blink
 		}
 	}
 
-	// Route input to focused field.
 	var cmd tea.Cmd
 	if m.focused == editFocusTitle {
 		m.titleInput, cmd = m.titleInput.Update(msg)
@@ -136,6 +133,15 @@ func (m TaskEditModel) Update(msg tea.Msg) (TaskEditModel, tea.Cmd) {
 		m.descInput, cmd = m.descInput.Update(msg)
 	}
 	return m, cmd
+}
+
+// applyWidths sets component widths from m.width/m.height.
+// Content width = terminal width − outer padding (4) − border (2) − inner padding (2).
+func (m *TaskEditModel) applyWidths() {
+	contentW := max(20, m.width-8)
+	m.titleInput.Width = contentW
+	m.descInput.SetWidth(contentW)
+	m.descInput.SetHeight(max(8, m.height-14))
 }
 
 func (m TaskEditModel) toggleFocus() TaskEditModel {
@@ -153,36 +159,19 @@ func (m TaskEditModel) toggleFocus() TaskEditModel {
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
+// editLabelStyle returns a label style for the edit form.
+// Unlike detailLabelStyle it has no fixed width, so "Description" doesn't wrap.
+func editLabelStyle(focused bool) lipgloss.Style {
+	s := lipgloss.NewStyle().Foreground(colorSubtle)
+	if focused {
+		s = s.Foreground(colorPrimary).Bold(true)
+	}
+	return s
+}
+
 func (m TaskEditModel) View() string {
-	titleFocused := m.focused == editFocusTitle
-	titleLabelStyle := detailLabelStyle
-	if titleFocused {
-		titleLabelStyle = titleLabelStyle.Foreground(colorPrimary).Bold(true)
-	}
-	titleBorderColor := colorBorder
-	if titleFocused {
-		titleBorderColor = colorPrimary
-	}
-	titleBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(titleBorderColor).
-		Padding(0, 1).
-		Render(m.titleInput.View())
-
-	titleField := lipgloss.JoinVertical(lipgloss.Left,
-		titleLabelStyle.Padding(1, 2, 0, 2).Render("Title"),
-		lipgloss.NewStyle().Padding(0, 2).Render(titleBox),
-	)
-
-	descFocused := m.focused == editFocusDesc
-	descLabelStyle := detailLabelStyle
-	if descFocused {
-		descLabelStyle = descLabelStyle.Foreground(colorPrimary).Bold(true)
-	}
-	descField := lipgloss.JoinVertical(lipgloss.Left,
-		descLabelStyle.Padding(1, 2, 0, 2).Render("Description"),
-		lipgloss.NewStyle().Padding(0, 2).Render(m.descInput.View()),
-	)
+	titleField := m.renderEditField("Title", m.titleInput.View(), m.focused == editFocusTitle)
+	descField := m.renderEditField("Description", m.descInput.View(), m.focused == editFocusDesc)
 
 	var statusLine string
 	switch {
@@ -196,3 +185,22 @@ func (m TaskEditModel) View() string {
 
 	return lipgloss.JoinVertical(lipgloss.Left, titleField, descField, statusLine)
 }
+
+func (m TaskEditModel) renderEditField(label, content string, focused bool) string {
+	borderColor := colorBorder
+	if focused {
+		borderColor = colorPrimary
+	}
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(0, 1).
+		Render(content)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		editLabelStyle(focused).Padding(1, 2, 0, 2).Render(label),
+		lipgloss.NewStyle().Padding(0, 2).Render(box),
+	)
+}
+

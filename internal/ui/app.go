@@ -462,12 +462,11 @@ func (m Model) openEditView() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.editModel = NewTaskEditModel(*m.selectedTask)
-	m.editModel.titleInput.Width = m.width - 8
-	m.editModel.descInput.SetWidth(m.width - 8)
-	m.editModel.descInput.SetHeight(max(8, m.height-14))
-	m.editModel.width = m.width
-	m.editModel.height = m.height
+	em := NewTaskEditModel(*m.selectedTask)
+	em.width = m.width
+	em.height = m.height
+	em.applyWidths()
+	m.editModel = em
 	m.state = viewEdit
 	m.statusMessage = ""
 	return m, textinput.Blink
