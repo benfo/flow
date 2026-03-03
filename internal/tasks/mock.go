@@ -9,13 +9,20 @@ import (
 // It holds mutable state so edits made via Update() are reflected in subsequent
 // GetTasks() calls within the same session.
 type MockProvider struct {
-	tasks  []Task
-	nextID int // counter for generated IDs
+	tasks    []Task
+	comments map[string][]Comment // taskID → comments
+	nextID   int                  // counter for generated task IDs
+	nextCID  int                  // counter for generated comment IDs
 }
 
 // NewMockProvider creates a MockProvider seeded with realistic sample tasks.
 func NewMockProvider() *MockProvider {
-	return &MockProvider{tasks: seedTasks(), nextID: 20}
+	return &MockProvider{
+		tasks:    seedTasks(),
+		comments: seedComments(),
+		nextID:   20,
+		nextCID:  10,
+	}
 }
 
 // Name satisfies Provider.
@@ -172,7 +179,7 @@ func (m *MockProvider) TransitionTask(taskID string, transitionID string) (Task,
 	return Task{}, fmt.Errorf("task %s not found", taskID)
 }
 
-// seedTasks returns the initial set of mock tasks, including a few subtasks
+// seedTasks returns the initial set of mock tasks
 // under FLOW-001 to demonstrate the subtask feature in the UI.
 func seedTasks() []Task {
 	return []Task{
@@ -414,6 +421,62 @@ Checklist:
 			Assignee: "you",
 			Labels:   []string{"release", "devops"},
 			Project:  "Flow CLI",
+		},
+	}
+}
+
+// GetComments satisfies CommentLister.
+func (m *MockProvider) GetComments(taskID string) ([]Comment, error) {
+	return m.comments[taskID], nil
+}
+
+// AddComment satisfies CommentAdder.
+func (m *MockProvider) AddComment(taskID, body string) (Comment, error) {
+	c := Comment{
+		ID:        fmt.Sprintf("CMT-%03d", m.nextCID),
+		Author:    "you",
+		Body:      body,
+		CreatedAt: "just now",
+		UpdatedAt: "just now",
+	}
+	m.nextCID++
+	m.comments[taskID] = append(m.comments[taskID], c)
+	return c, nil
+}
+
+// EditComment satisfies CommentEditor.
+func (m *MockProvider) EditComment(taskID, commentID, body string) (Comment, error) {
+	for i, c := range m.comments[taskID] {
+		if c.ID == commentID {
+			m.comments[taskID][i].Body = body
+			m.comments[taskID][i].UpdatedAt = "just now"
+			return m.comments[taskID][i], nil
+		}
+	}
+	return Comment{}, fmt.Errorf("comment %s not found", commentID)
+}
+
+// DeleteComment satisfies CommentDeleter.
+func (m *MockProvider) DeleteComment(taskID, commentID string) error {
+	list := m.comments[taskID]
+	for i, c := range list {
+		if c.ID == commentID {
+			m.comments[taskID] = append(list[:i], list[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("comment %s not found", commentID)
+}
+
+func seedComments() map[string][]Comment {
+	return map[string][]Comment{
+		"FLOW-001": {
+			{ID: "CMT-001", Author: "alice", Body: "I've started looking into the Atlassian OAuth docs. Looks like we need to use the 3LO flow.", CreatedAt: "2 days ago", UpdatedAt: "2 days ago"},
+			{ID: "CMT-002", Author: "bob", Body: "Heads up — the token expiry is 1 hour by default. Make sure we handle refresh proactively.", CreatedAt: "1 day ago", UpdatedAt: "1 day ago"},
+			{ID: "CMT-003", Author: "you", Body: "Good point. I'll add a 5-minute buffer before expiry to trigger the refresh.", CreatedAt: "3 hours ago", UpdatedAt: "3 hours ago"},
+		},
+		"FLOW-003": {
+			{ID: "CMT-004", Author: "you", Body: "Draft schema is in the PR. Would love a review on the provider nesting structure.", CreatedAt: "5 hours ago", UpdatedAt: "5 hours ago"},
 		},
 	}
 }

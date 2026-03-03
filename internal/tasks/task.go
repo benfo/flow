@@ -159,3 +159,36 @@ type SelfAssigner interface {
 	// updated Task.
 	AssignToSelf(taskID string) (Task, error)
 }
+
+// Comment is a single comment on a task.
+type Comment struct {
+	ID        string
+	Author    string
+	Body      string
+	CreatedAt string // formatted for display (e.g. "2 hours ago" or RFC3339)
+	UpdatedAt string
+}
+
+// CommentLister is an optional capability a Provider may implement to list
+// comments on a task.
+type CommentLister interface {
+	GetComments(taskID string) ([]Comment, error)
+}
+
+// CommentAdder is an optional capability a Provider may implement to post
+// a new comment on a task.
+type CommentAdder interface {
+	AddComment(taskID, body string) (Comment, error)
+}
+
+// CommentEditor is an optional capability a Provider may implement to update
+// the body of an existing comment.
+type CommentEditor interface {
+	EditComment(taskID, commentID, body string) (Comment, error)
+}
+
+// CommentDeleter is an optional capability a Provider may implement to delete
+// a comment from a task.
+type CommentDeleter interface {
+	DeleteComment(taskID, commentID string) error
+}

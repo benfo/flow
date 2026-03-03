@@ -466,6 +466,157 @@ func (c *client) assignIssue(key, accountID string) error {
 	return nil
 }
 
+// ── Comments ──────────────────────────────────────────────────────────────────
+
+// GetComments satisfies tasks.CommentLister.
+func (p *Provider) GetComments(taskID string) ([]tasks.Comment, error) {
+	list, err := p.client.listComments(taskID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tasks.Comment, 0, len(list.Comments))
+	for _, c := range list.Comments {
+		out = append(out, tasks.Comment{
+			ID:        c.ID,
+			Author:    c.Author.DisplayName,
+			Body:      extractText(c.Body),
+			CreatedAt: formatJiraTime(c.Created),
+			UpdatedAt: formatJiraTime(c.Updated),
+		})
+	}
+	return out, nil
+}
+
+// AddComment satisfies tasks.CommentAdder.
+func (p *Provider) AddComment(taskID, body string) (tasks.Comment, error) {
+	c, err := p.client.addComment(taskID, body)
+	if err != nil {
+		return tasks.Comment{}, err
+	}
+	return tasks.Comment{
+		ID:        c.ID,
+		Author:    c.Author.DisplayName,
+		Body:      extractText(c.Body),
+		CreatedAt: formatJiraTime(c.Created),
+		UpdatedAt: formatJiraTime(c.Updated),
+	}, nil
+}
+
+// EditComment satisfies tasks.CommentEditor.
+func (p *Provider) EditComment(taskID, commentID, body string) (tasks.Comment, error) {
+	c, err := p.client.editComment(taskID, commentID, body)
+	if err != nil {
+		return tasks.Comment{}, err
+	}
+	return tasks.Comment{
+		ID:        c.ID,
+		Author:    c.Author.DisplayName,
+		Body:      extractText(c.Body),
+		CreatedAt: formatJiraTime(c.Created),
+		UpdatedAt: formatJiraTime(c.Updated),
+	}, nil
+}
+
+// DeleteComment satisfies tasks.CommentDeleter.
+func (p *Provider) DeleteComment(taskID, commentID string) error {
+	return p.client.deleteComment(taskID, commentID)
+}
+
+// formatJiraTime converts a Jira ISO timestamp to a short display string.
+func formatJiraTime(s string) string {
+	// Jira returns times like "2024-01-15T09:30:00.000+0000". We trim to date+time.
+	if len(s) >= 16 {
+		return s[:10] + " " + s[11:16]
+	}
+	return s
+}
+
+// ── Comment API types ─────────────────────────────────────────────────────────
+
+type commentListResponse struct {
+	Comments []jiraComment `json:"comments"`
+}
+
+type jiraComment struct {
+	ID      string     `json:"id"`
+	Author  issueUser  `json:"author"`
+	Body    *adfNode   `json:"body"`
+	Created string     `json:"created"`
+	Updated string     `json:"updated"`
+}
+
+func (c *client) listComments(key string) (*commentListResponse, error) {
+	resp, err := c.get("/rest/api/3/issue/" + key + "/comment?maxResults=50&orderBy=created")
+	if err != nil {
+		return nil, fmt.Errorf("jira list comments %s: %w", key, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("jira list comments %s returned HTTP %d: %s", key, resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var r commentListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return nil, fmt.Errorf("decoding comments response: %w", err)
+	}
+	return &r, nil
+}
+
+func (c *client) addComment(key, body string) (*jiraComment, error) {
+	payload := map[string]interface{}{"body": plainTextToADF(body)}
+	resp, err := c.post("/rest/api/3/issue/"+key+"/comment", payload)
+	if err != nil {
+		return nil, fmt.Errorf("jira add comment %s: %w", key, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("jira add comment %s returned HTTP %d: %s", key, resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var r jiraComment
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return nil, fmt.Errorf("decoding add comment response: %w", err)
+	}
+	return &r, nil
+}
+
+func (c *client) editComment(key, commentID, body string) (*jiraComment, error) {
+	payload := map[string]interface{}{"body": plainTextToADF(body)}
+	resp, err := c.put("/rest/api/3/issue/"+key+"/comment/"+commentID, payload)
+	if err != nil {
+		return nil, fmt.Errorf("jira edit comment %s/%s: %w", key, commentID, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("jira edit comment returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var r jiraComment
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return nil, fmt.Errorf("decoding edit comment response: %w", err)
+	}
+	return &r, nil
+}
+
+func (c *client) deleteComment(key, commentID string) error {
+	req, err := http.NewRequest(http.MethodDelete, c.baseURL+"/rest/api/3/issue/"+key+"/comment/"+commentID, nil)
+	if err != nil {
+		return fmt.Errorf("jira delete comment %s/%s: %w", key, commentID, err)
+	}
+	req.Header.Set("Authorization", c.auth)
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("jira delete comment %s/%s: %w", key, commentID, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("jira delete comment returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
 func (c *client) updateIssue(key, summary, description string) error {
 	body := map[string]interface{}{
 		"fields": map[string]interface{}{
