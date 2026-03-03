@@ -103,14 +103,21 @@ func (m TaskSearchModel) View() string {
 		Render(fmt.Sprintf("── Results (%d)", len(m.results)))
 	parts = append(parts, resultsHeader)
 
-	// Result rows.
+	// Result rows — sliding window that keeps the cursor visible.
 	focused := m.focus == searchFocusResults
 	maxVisible := m.height - 10 // leave room for header/footer/input
 	if maxVisible < 1 {
 		maxVisible = 5
 	}
-	shown := min(len(m.results), maxVisible)
-	for i := 0; i < shown; i++ {
+
+	// Compute the start index so the cursor is always within the window.
+	start := 0
+	if m.cursor >= maxVisible {
+		start = m.cursor - maxVisible + 1
+	}
+	end := min(start+maxVisible, len(m.results))
+
+	for i := start; i < end; i++ {
 		t := m.results[i]
 		cursor := "  "
 		idStyle := lipgloss.NewStyle().Foreground(colorPrimary)
