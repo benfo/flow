@@ -1,6 +1,7 @@
 # Compiled binaries
 flow
 flow.exe
+flow.exe~
 *.exe
 dist/
 
