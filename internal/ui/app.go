@@ -287,6 +287,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleThemeSaved(ts)
 	}
 
+	// Handle clipboard copy result.
+	if cc, ok := msg.(clipboardCopyMsg); ok {
+		if cc.err != nil {
+			m.statusMessage = "⚠ clipboard unavailable"
+		} else {
+			m.statusMessage = "✓ copied to clipboard"
+		}
+		return m, nil
+	}
+
 	// Handle async parent task fetch result.
 	if parent, ok := msg.(parentTaskLoadedMsg); ok {
 		return m.handleParentLoaded(parent)

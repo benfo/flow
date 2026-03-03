@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	"github.com/benfo/flow/internal/tasks"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -32,6 +33,16 @@ func openURL(url string) tea.Cmd {
 		}
 		_ = cmd.Start()
 		return nil
+	}
+}
+
+// clipboardCopyMsg carries the result of a clipboard write.
+type clipboardCopyMsg struct{ err error }
+
+// copyToClipboardCmd writes text to the system clipboard.
+func copyToClipboardCmd(text string) tea.Cmd {
+	return func() tea.Msg {
+		return clipboardCopyMsg{err: clipboard.WriteAll(text)}
 	}
 }
 
@@ -227,6 +238,14 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selectedTask != nil && m.selectedTask.URL != "" {
 				return m, openURL(m.selectedTask.URL)
 			}
+		case "y":
+			if m.selectedTask != nil {
+				text := m.selectedTask.URL
+				if text == "" {
+					text = m.selectedTask.ID
+				}
+				return m, copyToClipboardCmd(text)
+			}
 		case "b":
 			return m.openBranchView()
 		case "e":
@@ -365,7 +384,7 @@ func (m Model) renderDetailView() string {
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  "+id, m.width)
 
-	hints := []string{"esc  back", "↑/↓  scroll", "o  open", "b  branch"}
+	hints := []string{"esc  back", "↑/↓  scroll", "o  open", "y  copy", "b  branch"}
 	if _, canEdit := m.provider.(tasks.Updater); canEdit {
 		hints = append(hints, "e  edit")
 	}

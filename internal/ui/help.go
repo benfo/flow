@@ -48,6 +48,7 @@ var helpSections = []helpSection{
 			{"enter", "open selected subtask"},
 			{"p", "navigate to parent task"},
 			{"o", "open task URL in browser"},
+			{"y", "copy task URL (or ID) to clipboard"},
 			{"b", "create or checkout git branch"},
 			{"e", "edit task"},
 			{"n", "create subtask"},
