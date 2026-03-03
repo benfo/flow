@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ben-fourie/flow-cli/internal/config"
+	igit "github.com/ben-fourie/flow-cli/internal/git"
 	"github.com/ben-fourie/flow-cli/internal/tasks"
 	"github.com/ben-fourie/flow-cli/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -28,9 +30,19 @@ func Execute() {
 }
 
 func runDashboard(_ *cobra.Command, _ []string) error {
+	// Resolve the repo root (empty string if not inside a repo — that's fine).
+	repoRoot, _ := igit.RepoRoot()
+
+	cfg, err := config.Load(repoRoot)
+	if err != nil {
+		// Config errors are non-fatal; warn and continue with defaults.
+		fmt.Fprintf(os.Stderr, "warning: could not load config: %v\n", err)
+		cfg = config.Default
+	}
+
 	provider := tasks.NewMockProvider()
 
-	model, err := ui.New(provider)
+	model, err := ui.New(provider, cfg)
 	if err != nil {
 		return fmt.Errorf("initialising dashboard: %w", err)
 	}

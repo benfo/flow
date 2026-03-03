@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ben-fourie/flow-cli/internal/config"
 	igit "github.com/ben-fourie/flow-cli/internal/git"
 	"github.com/ben-fourie/flow-cli/internal/tasks"
 	"github.com/charmbracelet/bubbles/list"
@@ -34,6 +35,7 @@ type Model struct {
 	list          list.Model
 	detail        viewport.Model
 	branchInput   textinput.Model
+	cfg           config.Config
 	state         viewState
 	tasks         []tasks.Task
 	selectedTask  *tasks.Task
@@ -44,7 +46,7 @@ type Model struct {
 
 // New constructs the Model by fetching tasks from the given provider.
 // Returns an error if the provider fails so the caller can surface it cleanly.
-func New(provider tasks.Provider) (Model, error) {
+func New(provider tasks.Provider, cfg config.Config) (Model, error) {
 	taskList, err := provider.GetTasks()
 	if err != nil {
 		return Model{}, fmt.Errorf("loading tasks from %s provider: %w", provider.Name(), err)
@@ -69,6 +71,7 @@ func New(provider tasks.Provider) (Model, error) {
 	return Model{
 		list:  l,
 		tasks: taskList,
+		cfg:   cfg,
 		state: viewList,
 	}, nil
 }
@@ -250,7 +253,7 @@ func (m Model) openBranchView() (tea.Model, tea.Cmd) {
 	}
 
 	ti := textinput.New()
-	ti.SetValue(igit.GenerateBranchName(*m.selectedTask))
+	ti.SetValue(m.cfg.Branch.Apply(*m.selectedTask))
 	ti.CursorEnd()
 	ti.Focus()
 	ti.Width = m.width - 6

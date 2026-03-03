@@ -9,8 +9,17 @@ import (
 
 // IsRepo reports whether the current working directory is inside a Git repository.
 func IsRepo() bool {
-	cmd := exec.Command("git", "rev-parse", "--git-dir")
-	return cmd.Run() == nil
+	return exec.Command("git", "rev-parse", "--git-dir").Run() == nil
+}
+
+// RepoRoot returns the absolute path to the root of the current Git repository.
+// Returns an error if the working directory is not inside a repo.
+func RepoRoot() (string, error) {
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", fmt.Errorf("not inside a git repository")
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // CreateBranch creates and checks out a new branch with the given name.
