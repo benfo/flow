@@ -1,12 +1,22 @@
 #!/bin/sh
 # install.sh — download and install the latest flow binary
-# Usage: curl -sf https://raw.githubusercontent.com/benfo/flow/main/install.sh | sh
-#        INSTALL_DIR=/usr/local/bin sh install.sh  (override install location)
+# Usage:
+#   curl -sf https://raw.githubusercontent.com/benfo/flow/main/install.sh | sh
+#   curl -sf .../install.sh | sh -s -- --pre-release   # include pre-releases
+#   INSTALL_DIR=/usr/local/bin sh install.sh            # override install location
 set -e
 
 REPO="benfo/flow"
 BINARY="flow"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+PRE_RELEASE=false
+
+# ── Parse flags ──────────────────────────────────────────────────────────────
+for arg in "$@"; do
+  case "$arg" in
+    --pre-release) PRE_RELEASE=true ;;
+  esac
+done
 
 # ── Detect OS ────────────────────────────────────────────────────────────────
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -24,15 +34,30 @@ case "$ARCH" in
   *) echo "error: unsupported architecture: $ARCH" >&2; exit 1 ;;
 esac
 
-# ── Resolve latest version ───────────────────────────────────────────────────
+# ── Resolve version ──────────────────────────────────────────────────────────
 if [ -z "$VERSION" ]; then
-  VERSION=$(curl -sf "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name"' \
-    | sed -E 's/.*"v?([^"]+)".*/\1/')
+  if [ "$PRE_RELEASE" = "true" ]; then
+    # Pick the first entry from all releases (includes pre-releases).
+    VERSION=$(curl -sf "https://api.github.com/repos/${REPO}/releases" \
+      | grep '"tag_name"' | head -1 \
+      | sed -E 's/.*"v?([^"]+)".*/\1/')
+  else
+    # Try stable release first.
+    VERSION=$(curl -sf "https://api.github.com/repos/${REPO}/releases/latest" \
+      | grep '"tag_name"' \
+      | sed -E 's/.*"v?([^"]+)".*/\1/')
+    # No stable release yet — fall back to the latest pre-release automatically.
+    if [ -z "$VERSION" ]; then
+      echo "  No stable release found, falling back to latest pre-release..."
+      VERSION=$(curl -sf "https://api.github.com/repos/${REPO}/releases" \
+        | grep '"tag_name"' | head -1 \
+        | sed -E 's/.*"v?([^"]+)".*/\1/')
+    fi
+  fi
 fi
 
 if [ -z "$VERSION" ]; then
-  echo "error: could not determine latest release. Set VERSION=x.y.z to override." >&2
+  echo "error: could not determine a release version. Set VERSION=x.y.z to override." >&2
   exit 1
 fi
 

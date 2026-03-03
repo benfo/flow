@@ -1,24 +1,45 @@
 # install.ps1 — download and install the latest flow binary on Windows
-# Usage: irm https://raw.githubusercontent.com/benfo/flow/main/install.ps1 | iex
-#        $env:INSTALL_DIR = "C:\tools"; irm .../install.ps1 | iex  (override location)
+# Usage:
+#   irm https://raw.githubusercontent.com/benfo/flow/main/install.ps1 | iex
+#   & ([scriptblock]::Create((irm .../install.ps1))) -PreRelease   # include pre-releases
+#   $env:INSTALL_DIR = "C:\tools"; irm .../install.ps1 | iex       # override location
+param(
+  [switch]$PreRelease
+)
 $ErrorActionPreference = "Stop"
 
-$Repo      = "benfo/flow"
-$Binary    = "flow"
+$Repo       = "benfo/flow"
+$Binary     = "flow"
 $InstallDir = if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { "$env:LOCALAPPDATA\flow" }
 
 # ── Detect architecture ──────────────────────────────────────────────────────
 $Arch = if ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "386" }
 
-# ── Resolve latest version ───────────────────────────────────────────────────
+# ── Resolve version ──────────────────────────────────────────────────────────
 $Version = $env:VERSION
 if (-not $Version) {
-  $release = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest"
-  $Version = $release.tag_name -replace '^v', ''
+  if ($PreRelease) {
+    # Pick the first entry from all releases (includes pre-releases).
+    $releases = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases"
+    $Version  = $releases[0].tag_name -replace '^v', ''
+  } else {
+    # Try stable release first.
+    try {
+      $release = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest"
+      $Version = $release.tag_name -replace '^v', ''
+    } catch {}
+
+    # No stable release yet — fall back to the latest pre-release automatically.
+    if (-not $Version) {
+      Write-Host "  No stable release found, falling back to latest pre-release..."
+      $releases = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases"
+      $Version  = $releases[0].tag_name -replace '^v', ''
+    }
+  }
 }
 
 if (-not $Version) {
-  Write-Error "Could not determine latest release. Set `$env:VERSION = 'x.y.z' to override."
+  Write-Error "Could not determine a release version. Set `$env:VERSION = 'x.y.z' to override."
   exit 1
 }
 
