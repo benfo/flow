@@ -522,6 +522,12 @@ func (p *Provider) DeleteComment(taskID, commentID string) error {
 	return p.client.deleteComment(taskID, commentID)
 }
 
+// DeleteTask satisfies TaskDeleter. It permanently deletes the Jira issue
+// (and any subtasks) from the board.
+func (p *Provider) DeleteTask(taskID string) error {
+	return p.client.deleteIssue(taskID)
+}
+
 // formatJiraTime converts a Jira ISO timestamp to a short display string.
 func formatJiraTime(s string) string {
 	// Jira returns times like "2024-01-15T09:30:00.000+0000". We trim to date+time.
@@ -613,6 +619,25 @@ func (c *client) deleteComment(key, commentID string) error {
 	if resp.StatusCode != http.StatusNoContent {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("jira delete comment returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+func (c *client) deleteIssue(key string) error {
+	req, err := http.NewRequest(http.MethodDelete, c.baseURL+"/rest/api/3/issue/"+key+"?deleteSubtasks=true", nil)
+	if err != nil {
+		return fmt.Errorf("jira delete issue %s: %w", key, err)
+	}
+	req.Header.Set("Authorization", c.auth)
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("jira delete issue %s: %w", key, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("jira delete issue returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	return nil
 }

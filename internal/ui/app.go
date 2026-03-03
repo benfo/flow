@@ -97,6 +97,12 @@ type commentDeletedMsg struct {
 	err       error
 }
 
+type taskDeletedMsg struct {
+	taskID   string
+	parentID string // non-empty if this was a subtask
+	err      error
+}
+
 // detailFocusArea identifies which region of the detail view has keyboard focus.
 type detailFocusArea int
 
@@ -133,6 +139,7 @@ type Model struct {
 	detailParentReturnState viewState   // detailReturnState of the parent task
 
 	commentsModel TaskCommentsModel
+	confirmingDelete bool   // true while waiting for delete confirmation in detail view
 	statusMessage string          // transient feedback shown in the footer
 	loadErr       string          // shown in viewError
 	width         int
@@ -238,6 +245,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if deleted, ok := msg.(commentDeletedMsg); ok {
 		return m.handleCommentDeleted(deleted)
+	}
+
+	// Handle async task delete result.
+	if taskDel, ok := msg.(taskDeletedMsg); ok {
+		return m.handleTaskDeleted(taskDel)
 	}
 
 	// Keep the spinner ticking while loading.
@@ -403,6 +415,7 @@ func (m Model) openDetailForTask(t tasks.Task, returnTo viewState) (tea.Model, t
 	m.subtasks = nil
 	m.subtaskCursor = 0
 	m.detailFocus = detailFocusViewport
+	m.confirmingDelete = false
 
 	contentHeight := m.height - verticalOverhead
 	m.detail = viewport.New(m.width, contentHeight)
@@ -481,6 +494,23 @@ func (m Model) renderListView() string {
 // ── Detail view ───────────────────────────────────────────────────────────────
 
 func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle delete confirmation overlay first.
+	if m.confirmingDelete {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "y", "enter":
+				m.confirmingDelete = false
+				if del, ok := m.provider.(tasks.TaskDeleter); ok && m.selectedTask != nil {
+					t := *m.selectedTask
+					return m, deleteTaskCmd(del, t)
+				}
+			case "n", "esc":
+				m.confirmingDelete = false
+			}
+		}
+		return m, nil
+	}
+
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "q", "ctrl+c":
@@ -513,6 +543,12 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.openCommentsView()
 		case "n":
 			return m.openCreateView(m.selectedTask)
+		case "D":
+			if _, canDelete := m.provider.(tasks.TaskDeleter); canDelete && m.selectedTask != nil {
+				m.confirmingDelete = true
+				m.statusMessage = ""
+				return m, nil
+			}
 		case "tab":
 			// Toggle focus between viewport and subtask list (only if subtasks exist).
 			if len(m.subtasks) > 0 {
@@ -606,11 +642,16 @@ func (m Model) renderDetailView() string {
 	if _, canComment := m.provider.(tasks.CommentLister); canComment {
 		footerText += "   c  comments"
 	}
+	if _, canDelete := m.provider.(tasks.TaskDeleter); canDelete {
+		footerText += "   D  delete"
+	}
 	if len(m.subtasks) > 0 {
 		footerText += "   tab  focus subtasks"
 	}
 	footerText += "   q  quit"
-	if m.statusMessage != "" {
+	if m.confirmingDelete && m.selectedTask != nil {
+		footerText = renderDeleteConfirm(m.selectedTask.ID)
+	} else if m.statusMessage != "" {
 		footerText = m.statusMessage
 	}
 	footer := renderFooterBar(footerText, m.width)
@@ -960,6 +1001,74 @@ func createTaskCmd(c tasks.Creator, input tasks.CreateInput) tea.Cmd {
 		t, err := c.Create(input)
 		return taskCreatedMsg{task: t, err: err}
 	}
+}
+
+func deleteTaskCmd(d tasks.TaskDeleter, t tasks.Task) tea.Cmd {
+	return func() tea.Msg {
+		err := d.DeleteTask(t.ID)
+		return taskDeletedMsg{taskID: t.ID, parentID: t.ParentID, err: err}
+	}
+}
+
+func (m Model) handleTaskDeleted(msg taskDeletedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMessage = "✗  " + msg.err.Error()
+		m.state = viewDetail
+		return m, nil
+	}
+
+	// Remove the task (and any subtasks) from the local slice.
+	var updated []tasks.Task
+	for _, t := range m.tasks {
+		if t.ID == msg.taskID || t.ParentID == msg.taskID {
+			continue
+		}
+		updated = append(updated, t)
+	}
+	// Update parent HasChildren flag if this was a subtask.
+	if msg.parentID != "" {
+		hasChild := false
+		for _, t := range updated {
+			if t.ParentID == msg.parentID {
+				hasChild = true
+				break
+			}
+		}
+		if !hasChild {
+			for i := range updated {
+				if updated[i].ID == msg.parentID {
+					updated[i].HasChildren = false
+					break
+				}
+			}
+		}
+	}
+	m.tasks = updated
+	items := make([]list.Item, len(m.tasks))
+	for i, t := range m.tasks {
+		items[i] = taskItem{task: t}
+	}
+	m.list.SetItems(items)
+
+	if msg.parentID != "" {
+		// Return to parent task detail and refresh subtasks.
+		if m.detailReturnTask != nil {
+			parent := *m.detailReturnTask
+			parentReturnState := m.detailParentReturnState
+			m.detailReturnTask = nil
+			m.subtasks = nil
+			m.subtaskCursor = 0
+			m.statusMessage = "✓  Deleted " + msg.taskID
+			return m.openDetailForTask(parent, parentReturnState)
+		}
+		m.state = viewList
+		return m, nil
+	}
+
+	m.selectedTask = nil
+	m.state = m.detailReturnState
+	m.statusMessage = ""
+	return m, nil
 }
 
 func (m Model) handleTaskCreated(msg taskCreatedMsg) (tea.Model, tea.Cmd) {

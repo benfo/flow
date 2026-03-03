@@ -192,3 +192,12 @@ type CommentEditor interface {
 type CommentDeleter interface {
 	DeleteComment(taskID, commentID string) error
 }
+
+// TaskDeleter is an optional capability a Provider may implement to permanently
+// delete a task or subtask. Providers that are read-only or do not support
+// deletion do not need to implement this interface.
+type TaskDeleter interface {
+	// DeleteTask permanently removes the task (and any subtasks) from the
+	// upstream provider.
+	DeleteTask(taskID string) error
+}

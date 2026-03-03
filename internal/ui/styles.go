@@ -135,6 +135,19 @@ func renderDiscardConfirm() string {
 	)
 }
 
+// renderDeleteConfirm renders the inline "delete task?" confirmation bar
+// shown when the user presses D on the detail view.
+func renderDeleteConfirm(taskID string) string {
+	label := lipgloss.NewStyle().Foreground(colorPriorityCritical).Bold(true).Render("Delete " + taskID + "?")
+	yes := lipgloss.NewStyle().Foreground(colorPriorityCritical).Bold(true).Render("y")
+	no := lipgloss.NewStyle().Foreground(colorSubtle).Render("n")
+	hint := lipgloss.NewStyle().Foreground(colorSubtle).Render(" yes  /  ")
+	hintNo := lipgloss.NewStyle().Foreground(colorSubtle).Render(" cancel")
+	return lipgloss.NewStyle().Padding(0, 2).Render(
+		label + "   " + yes + hint + no + hintNo,
+	)
+}
+
 
 func renderStatusBadge(s tasks.Status) string {
 	color := statusColor(s)

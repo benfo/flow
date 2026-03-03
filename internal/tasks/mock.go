@@ -425,6 +425,52 @@ Checklist:
 	}
 }
 
+// DeleteTask satisfies TaskDeleter. It removes the task and any of its
+// subtasks from the in-memory slice, updates the parent's HasChildren flag,
+// and purges associated comments.
+func (m *MockProvider) DeleteTask(taskID string) error {
+	var found bool
+	var parentID string
+	var updated []Task
+	for _, t := range m.tasks {
+		if t.ID == taskID {
+			found = true
+			parentID = t.ParentID
+			continue
+		}
+		if t.ParentID == taskID {
+			// cascade-delete children
+			delete(m.comments, t.ID)
+			continue
+		}
+		updated = append(updated, t)
+	}
+	if !found {
+		return fmt.Errorf("task %s not found", taskID)
+	}
+	// Clear parent HasChildren if no other children remain.
+	if parentID != "" {
+		hasChild := false
+		for _, t := range updated {
+			if t.ParentID == parentID {
+				hasChild = true
+				break
+			}
+		}
+		if !hasChild {
+			for i := range updated {
+				if updated[i].ID == parentID {
+					updated[i].HasChildren = false
+					break
+				}
+			}
+		}
+	}
+	m.tasks = updated
+	delete(m.comments, taskID)
+	return nil
+}
+
 // GetComments satisfies CommentLister.
 func (m *MockProvider) GetComments(taskID string) ([]Comment, error) {
 	return m.comments[taskID], nil
