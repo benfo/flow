@@ -134,6 +134,7 @@ func (m Model) openDetailForTask(t tasks.Task, returnTo viewState) (tea.Model, t
 	m.subtaskCursor = 0
 	m.detailFocus = detailFocusViewport
 	m.confirmingDelete = false
+	m.statusMessage = "" // clear any transient message (e.g. "Loading parent…")
 
 	contentHeight := m.height - verticalOverhead
 	m.detail = viewport.New(m.width, contentHeight)
@@ -232,6 +233,7 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detailReturnTask = nil
 				return m.openDetailForTask(parent, parentReturnState)
 			}
+			m.statusMessage = ""
 			m.state = m.detailReturnState
 			return m, nil
 		case "o":
