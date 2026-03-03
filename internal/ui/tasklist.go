@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/ben-fourie/flow-cli/internal/tasks"
 	"github.com/charmbracelet/bubbles/list"
@@ -57,13 +58,16 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	statusBadge := renderStatusBadge(t.task.Status)
 	priorityBadge := renderPriorityBadge(t.task.Priority)
 
+	// selector(2) + space(1) + ID + space(2) = fixed prefix; badges indent to match.
+	prefixWidth := 2 + 1 + lipgloss.Width(idStr) + 2
+	indent := strings.Repeat(" ", prefixWidth)
+
 	row1 := lipgloss.JoinHorizontal(lipgloss.Left,
 		selector+" ",
 		idStr+"  ",
 		titleStr,
 	)
-	// Indent the badge row to align under the title.
-	row2 := "     " + statusBadge + "   " + priorityBadge
+	row2 := indent + statusBadge + "   " + priorityBadge
 
 	fmt.Fprintln(w, row1)
 	fmt.Fprint(w, row2)

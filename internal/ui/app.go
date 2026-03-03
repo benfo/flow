@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/ben-fourie/flow-cli/internal/tasks"
 	"github.com/charmbracelet/bubbles/list"
@@ -18,9 +19,9 @@ const (
 	viewDetail viewState = iota
 )
 
-// verticalOverhead is the number of rows consumed by the header and footer bars
-// that surround the main content area.
-const verticalOverhead = 3 // header(1) + blank separator(1) + footer(1)
+// verticalOverhead is the number of rows consumed by the header, two separator
+// lines, and the footer bar that surround the main content area.
+const verticalOverhead = 4 // header(1) + separator(1) + separator(1) + footer(1)
 
 // ── Root model ────────────────────────────────────────────────────────────────
 
@@ -50,11 +51,15 @@ func New(provider tasks.Provider) (Model, error) {
 	}
 
 	l := list.New(items, taskDelegate{}, 0, 0)
-	l.SetShowTitle(false)   // we render our own header
-	l.SetShowHelp(false)    // we render our own footer
+	l.SetShowTitle(false)        // we render our own header
+	l.SetShowHelp(false)         // we render our own footer
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
-	l.Styles.StatusBar = dimStyle
+	l.Styles.StatusBar        = dimStyle
+	l.Styles.FilterPrompt     = dimStyle.Bold(true)
+	l.Styles.FilterCursor     = lipgloss.NewStyle().Foreground(colorPrimary)
+	l.Styles.ActivePaginationDot   = lipgloss.NewStyle().Foreground(colorPrimary)
+	l.Styles.InactivePaginationDot = lipgloss.NewStyle().Foreground(colorBorder)
 
 	return Model{
 		list:  l,
@@ -157,10 +162,21 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 
 func (m Model) renderListView() string {
 	header := renderHeaderBar("⚡ flow", m.width)
+	sep := renderSeparator(m.width)
 	footer := renderFooterBar("↑/↓  navigate   enter  open   /  filter   esc  clear filter   q  quit", m.width)
+
+	var content string
+	if len(m.list.VisibleItems()) == 0 && m.list.FilterState() == list.FilterApplied {
+		content = emptyStateStyle.Render("No tasks match your filter.")
+	} else {
+		content = m.list.View()
+	}
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
-		m.list.View(),
+		sep,
+		content,
+		sep,
 		footer,
 	)
 }
@@ -192,11 +208,14 @@ func (m Model) renderDetailView() string {
 	if m.selectedTask != nil {
 		id = m.selectedTask.ID
 	}
+	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  "+id, m.width)
 	footer := renderFooterBar("esc  back   ↑/↓  scroll   o  open in browser   q  quit", m.width)
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
+		sep,
 		m.detail.View(),
+		sep,
 		footer,
 	)
 }
@@ -209,4 +228,8 @@ func renderHeaderBar(title string, width int) string {
 
 func renderFooterBar(help string, width int) string {
 	return appFooterStyle.Width(width).Render(help)
+}
+
+func renderSeparator(width int) string {
+	return separatorStyle.Render(strings.Repeat("─", width))
 }

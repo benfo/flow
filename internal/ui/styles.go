@@ -42,10 +42,18 @@ var (
 			Background(colorSurface).
 			Padding(0, 1)
 
+	separatorStyle = lipgloss.NewStyle().
+			Foreground(colorBorder)
+
 	listTitleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(colorPrimary).
 			Padding(0, 1)
+
+	emptyStateStyle = lipgloss.NewStyle().
+			Foreground(colorSubtle).
+			Italic(true).
+			Padding(2, 2)
 )
 
 // ── List item styles ──────────────────────────────────────────────────────────
