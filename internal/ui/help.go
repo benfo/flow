@@ -34,6 +34,7 @@ var helpSections = []helpSection{
 		bindings: []helpBinding{
 			{"↑ / ↓ / j / k", "navigate tasks"},
 			{"enter", "open task detail"},
+			{"y", "copy task URL (or ID) to clipboard"},
 			{"f", "search tasks"},
 			{"b", "git branch view"},
 			{"T", "open theme picker"},

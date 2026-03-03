@@ -130,6 +130,14 @@ func (m Model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider))
 			case "T":
 				return m.openThemeView()
+			case "y":
+				if item, ok := m.list.SelectedItem().(taskItem); ok {
+					text := item.task.URL
+					if text == "" {
+						text = item.task.ID
+					}
+					return m, copyToClipboardCmd(text)
+				}
 			}
 		}
 	}
@@ -151,7 +159,7 @@ func (m Model) renderListView() string {
 	header := renderHeaderBar("⚡ flow", m.width)
 	sep := renderSeparator(m.width)
 
-	hints := []string{"↑/↓  navigate", "enter  open", "/  filter", "esc  clear filter", "r  refresh", "f  find"}
+	hints := []string{"↑/↓  navigate", "enter  open", "y  copy", "/  filter", "esc  clear filter", "r  refresh", "f  find"}
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
 		hints = append(hints, "n  new")
 	}
