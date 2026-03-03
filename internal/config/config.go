@@ -220,7 +220,23 @@ func merge(base, override Config) Config {
 		result.Providers.Active = p.Active
 	}
 	if p.Jira != nil {
-		result.Providers.Jira = p.Jira
+		if result.Providers.Jira == nil {
+			result.Providers.Jira = p.Jira
+		} else {
+			// Deep-merge so per-repo config can override individual fields
+			// (e.g. just Projects) without wiping credentials.
+			merged := *result.Providers.Jira
+			if p.Jira.BaseURL != "" {
+				merged.BaseURL = p.Jira.BaseURL
+			}
+			if p.Jira.Email != "" {
+				merged.Email = p.Jira.Email
+			}
+			if len(p.Jira.Projects) > 0 {
+				merged.Projects = p.Jira.Projects
+			}
+			result.Providers.Jira = &merged
+		}
 	}
 	return result
 }
