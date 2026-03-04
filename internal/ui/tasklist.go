@@ -193,7 +193,14 @@ func (m Model) renderListView() string {
 		hints = append(hints, "n  new")
 	}
 	hints = append(hints, "?  help")
-	footer := renderFooterBar(fitHints(hints, "   ", m.width-2), m.width)
+
+	var footerContent string
+	if m.statusMessage != "" {
+		footerContent = m.statusMessage
+	} else {
+		footerContent = fitHints(hints, "   ", m.width-2)
+	}
+	footer := renderFooterBar(footerContent, m.width)
 
 	var content string
 	if len(m.list.VisibleItems()) == 0 && m.list.FilterState() == list.FilterApplied {

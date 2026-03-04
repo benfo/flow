@@ -64,6 +64,12 @@ func (m Model) openBranchView() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// When triggered from the detail view, return there after the branch op
+	// so the status message is visible. openBranchViewFromList overrides this.
+	if m.state == viewDetail {
+		m.detailReturnState = viewDetail
+	}
+
 	if !igit.IsRepo() {
 		m.statusMessage = "✗  Not inside a Git repository"
 		return m, clearStatusCmd()
