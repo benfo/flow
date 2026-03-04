@@ -398,7 +398,7 @@ func (m Model) updateCommentsView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.commentsModel = m.commentsModel.openCompose(c)
 			}
 			return m, nil
-		case "d":
+		case "D":
 			if _, ok := m.commentsModel.SelectedComment(); ok {
 				m.commentsModel.mode = commentModeDelete
 			}

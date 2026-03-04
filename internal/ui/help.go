@@ -34,9 +34,11 @@ var helpSections = []helpSection{
 		bindings: []helpBinding{
 			{"↑ / ↓ / j / k", "navigate tasks"},
 			{"enter", "open task detail"},
+			{"b", "git branch view"},
 			{"y", "copy task URL (or ID) to clipboard"},
 			{"f", "search tasks"},
-			{"b", "git branch view"},
+			{"n", "create new task"},
+			{"r", "refresh task list"},
 			{"T", "open theme picker"},
 		},
 	},
@@ -80,7 +82,7 @@ var helpSections = []helpSection{
 		title: "Comments",
 		bindings: []helpBinding{
 			{"↑ / ↓", "navigate comments"},
-			{"a", "add a new comment"},
+			{"n", "add a new comment"},
 			{"e", "edit selected comment"},
 			{"D", "delete selected comment"},
 			{"esc", "go back"},
