@@ -16,6 +16,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	buildVersion = "dev"
+	buildCommit  = "none"
+	buildDate    = "unknown"
+)
+
+// SetBuildInfo is called from main() with values injected by GoReleaser ldflags.
+func SetBuildInfo(version, commit, date string) {
+	buildVersion = version
+	buildCommit = commit
+	buildDate = date
+	rootCmd.Version = version
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "flow",
 	Short: "A developer dashboard for your terminal",
@@ -65,7 +79,11 @@ func runDashboard(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("initialising provider: %w", err)
 	}
 
-	model, err := ui.New(provider, cfg, providerFactory)
+	model, err := ui.New(provider, cfg, providerFactory, ui.BuildInfo{
+		Version: buildVersion,
+		Commit:  buildCommit,
+		Date:    buildDate,
+	})
 	if err != nil {
 		return fmt.Errorf("initialising dashboard: %w", err)
 	}

@@ -114,7 +114,7 @@ var helpSections = []helpSection{
 }
 
 // buildHelpContent renders the full help text for the viewport.
-func buildHelpContent(width int) string {
+func (m Model) buildHelpContent(width int) string {
 	keyW := 24 // column width for the key
 	innerW := max(0, width-4)
 
@@ -146,6 +146,55 @@ func buildHelpContent(width int) string {
 		sb.WriteString("\n")
 	}
 
+	// About section — version, commit, build date.
+	aboutTitle := "About"
+	divLen := max(0, innerW-lipgloss.Width(aboutTitle)-3)
+	div := divStyle.Render("── " + aboutTitle + " " + strings.Repeat("─", divLen))
+	sb.WriteString(sectionStyle.Render(div))
+	sb.WriteString("\n")
+
+	writeAboutRow := func(label, value string) {
+		row := lipgloss.JoinHorizontal(lipgloss.Top,
+			keyStyle.Render(label),
+			descStyle.Render(value),
+		)
+		sb.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(row))
+		sb.WriteString("\n")
+	}
+
+	v := m.buildInfo.Version
+	if v == "" {
+		v = "dev"
+	}
+	c := m.buildInfo.Commit
+	if c == "" {
+		c = "unknown"
+	}
+	d := m.buildInfo.Date
+	if d == "" {
+		d = "unknown"
+	}
+	writeAboutRow("version", v)
+	writeAboutRow("commit", c)
+	writeAboutRow("built", d)
+
+	if m.updateAvailable != "" {
+		sb.WriteString("\n")
+		updateLine := lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Padding(0, 2).
+			Render(fmt.Sprintf("⬆  %s is available — run the install script to upgrade:", m.updateAvailable))
+		sb.WriteString(updateLine)
+		sb.WriteString("\n")
+		scriptLines := []string{
+			"  macOS / Linux   curl -sSL https://benfo.github.io/flow/install.sh | bash",
+			"  Windows         irm https://benfo.github.io/flow/install.ps1 | iex",
+		}
+		for _, l := range scriptLines {
+			sb.WriteString(dimStyle.Padding(0, 2).Render(l))
+			sb.WriteString("\n")
+		}
+	}
+	sb.WriteString("\n")
+
 	return sb.String()
 }
 
@@ -153,7 +202,7 @@ func buildHelpContent(width int) string {
 func (m Model) openHelpView() (tea.Model, tea.Cmd) {
 	contentH := m.height - verticalOverhead
 	vp := viewport.New(m.width, max(3, contentH))
-	vp.SetContent(buildHelpContent(m.width))
+	vp.SetContent(m.buildHelpContent(m.width))
 	m.helpViewport = vp
 	m.showHelp = true
 	return m, nil

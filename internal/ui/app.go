@@ -7,6 +7,7 @@ import (
 	"github.com/benfo/flow/internal/config"
 	"github.com/benfo/flow/internal/git"
 	"github.com/benfo/flow/internal/tasks"
+	"github.com/benfo/flow/internal/updater"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -139,6 +140,18 @@ type jiraAuthDoneMsg struct{}
 // jiraAuthCancelledMsg is sent by the embedded JiraAuthModel when the user cancels.
 type jiraAuthCancelledMsg struct{}
 
+// updateCheckMsg carries the result of the async update check.
+type updateCheckMsg struct {
+	latestVersion string // non-empty when a newer version is available
+}
+
+// BuildInfo holds version metadata injected at build time by GoReleaser.
+type BuildInfo struct {
+	Version string
+	Commit  string
+	Date    string
+}
+
 // currentBranchMsg carries the result of the async git branch detection.
 type currentBranchMsg struct {
 	branch     string // raw branch name, empty if not in a repo
@@ -220,6 +233,8 @@ type Model struct {
 
 	jiraAuthModel   JiraAuthModel                                    // embedded auth wizard (viewAuthJira)
 	providerFactory func(config.Config) (tasks.Provider, error)      // rebuilds provider after auth
+	buildInfo       BuildInfo                                         // version metadata
+	updateAvailable string                                            // non-empty when a newer release exists
 
 	statusMessage string // transient feedback shown in the footer
 	loadErr       string // shown in viewError
@@ -229,7 +244,7 @@ type Model struct {
 
 // New constructs the Model. Task loading is deferred to Init() so the UI
 // can show a spinner while the network request is in flight.
-func New(provider tasks.Provider, cfg config.Config, factory func(config.Config) (tasks.Provider, error)) (Model, error) {
+func New(provider tasks.Provider, cfg config.Config, factory func(config.Config) (tasks.Provider, error), info BuildInfo) (Model, error) {
 	SetTheme(cfg.Theme)
 	initStyles()
 
@@ -260,6 +275,7 @@ func New(provider tasks.Provider, cfg config.Config, factory func(config.Config)
 		provider:        provider,
 		state:           initialState,
 		providerFactory: factory,
+		buildInfo:       info,
 	}, nil
 }
 
@@ -275,9 +291,17 @@ func isFirstRun(cfg config.Config) bool {
 func (m Model) Init() tea.Cmd {
 	if m.state == viewOnboard {
 		// Don't load tasks or start the spinner on first run; wait for user choice.
-		return tea.Batch(currentBranchCmd(), scanLocalBranchesCmd(), gitDirtyCmd())
+		return tea.Batch(currentBranchCmd(), scanLocalBranchesCmd(), gitDirtyCmd(), updateCheckCmd(m.buildInfo.Version))
 	}
-	return tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider), currentBranchCmd(), scanLocalBranchesCmd(), gitDirtyCmd())
+	return tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider), currentBranchCmd(), scanLocalBranchesCmd(), gitDirtyCmd(), updateCheckCmd(m.buildInfo.Version))
+}
+
+// updateCheckCmd checks for a newer release in the background.
+func updateCheckCmd(currentVersion string) tea.Cmd {
+	return func() tea.Msg {
+		latest, _ := updater.Check(currentVersion)
+		return updateCheckMsg{latestVersion: latest}
+	}
 }
 
 // loadTasksCmd returns a Cmd that fetches tasks in the background.
@@ -405,6 +429,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle git dirty-state result.
 	if d, ok := msg.(gitDirtyMsg); ok {
 		m.gitDirty = d.dirty
+		return m, nil
+	}
+
+	// Handle async update check result.
+	if uc, ok := msg.(updateCheckMsg); ok {
+		m.updateAvailable = uc.latestVersion
+		// Rebuild help viewport content if the help overlay is currently open.
+		if m.showHelp {
+			m.helpViewport.SetContent(m.buildHelpContent(m.width))
+		}
 		return m, nil
 	}
 
@@ -621,9 +655,14 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 }
 
 // headerRight builds the right-aligned context string for the header bar:
-// provider name (+ first project if configured) and git branch (with dirty marker).
+// optional update badge, provider name (+ first project if configured), and git branch.
 func (m Model) headerRight() string {
 	var parts []string
+
+	// Update badge — shown when a newer release is available.
+	if m.updateAvailable != "" {
+		parts = append(parts, "⬆ "+m.updateAvailable)
+	}
 
 	// Provider chip — skip "mock" (dev/test mode).
 	if len(m.cfg.Providers.Active) > 0 {
