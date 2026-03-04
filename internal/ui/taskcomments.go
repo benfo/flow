@@ -480,7 +480,7 @@ func (m Model) renderCommentsView() string {
 	if len(m.commentsModel.comments) > 0 {
 		title += "  (" + countLabel(len(m.commentsModel.comments)) + ")"
 	}
-	header := renderHeaderBar("⚡ flow  /  "+title, m.width)
+	header := renderHeaderBar("⚡ flow  /  "+title, m.headerRight(), m.width)
 
 	var footer string
 	if m.confirm != nil {

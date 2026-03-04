@@ -136,7 +136,7 @@ func (m Model) makeCheckoutConfirmPrompt(name string) *confirmPrompt {
 						m.activeBranch = name
 						m.activeTaskID = extractTaskID(name)
 						m.statusMessage = "✓  Stashed, switched to: " + name
-						return m, tea.Batch(scanLocalBranchesCmd(), clearStatusCmd())
+						return m, tea.Batch(currentBranchCmd(), scanLocalBranchesCmd(), gitDirtyCmd(), clearStatusCmd())
 					},
 					onCancel: func(m Model) (tea.Model, tea.Cmd) { return m, nil },
 				}
@@ -149,7 +149,7 @@ func (m Model) makeCheckoutConfirmPrompt(name string) *confirmPrompt {
 			m.activeBranch = name
 			m.activeTaskID = extractTaskID(name)
 			m.statusMessage = "✓  Switched to branch: " + name
-			return m, tea.Batch(scanLocalBranchesCmd(), clearStatusCmd())
+			return m, tea.Batch(currentBranchCmd(), scanLocalBranchesCmd(), gitDirtyCmd(), clearStatusCmd())
 		},
 		onCancel: func(m Model) (tea.Model, tea.Cmd) { return m, nil },
 	}
@@ -211,13 +211,13 @@ func (m Model) confirmBranch() (tea.Model, tea.Cmd) {
 				},
 			}
 			m.state = m.detailReturnState
-			return m, scanLocalBranchesCmd()
+			return m, tea.Batch(currentBranchCmd(), scanLocalBranchesCmd(), gitDirtyCmd())
 		}
 	}
 
 	m.statusMessage = "✓  Branch created: " + name
 	m.state = m.detailReturnState
-	return m, tea.Batch(scanLocalBranchesCmd(), clearStatusCmd())
+	return m, tea.Batch(currentBranchCmd(), scanLocalBranchesCmd(), gitDirtyCmd(), clearStatusCmd())
 }
 
 func (m Model) renderBranchView() string {
@@ -226,7 +226,7 @@ func (m Model) renderBranchView() string {
 	}
 
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  new branch", m.width)
+	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  new branch", m.headerRight(), m.width)
 
 	var footerText string
 	if m.confirm != nil {

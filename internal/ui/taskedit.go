@@ -297,7 +297,7 @@ func (m Model) renderEditView() string {
 		return ""
 	}
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  edit", m.width)
+	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  edit", m.headerRight(), m.width)
 	var footerText string
 	if m.confirm != nil {
 		footerText = renderConfirmFooter(m.confirm.question, m.confirm.destructive)

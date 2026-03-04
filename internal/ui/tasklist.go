@@ -184,7 +184,7 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) renderListView() string {
-	header := renderHeaderBar("⚡ flow", m.width)
+	header := renderHeaderBar("⚡ flow", m.headerRight(), m.width)
 	sep := renderSeparator(m.width)
 
 	// Primary hints: the 4 most contextual actions + help. Navigation keys

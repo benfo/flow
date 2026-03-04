@@ -182,7 +182,7 @@ func (m JiraConfigModel) save() (JiraConfigModel, tea.Cmd) {
 
 func (m JiraConfigModel) renderFormView() string {
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  setup  /  jira", m.width)
+	header := renderHeaderBar("⚡ flow  /  setup  /  jira", "", m.width)
 	footer := renderFooterBar("tab  toggle scope   ←/→  switch scope   enter  save   esc  cancel", m.width)
 
 	domain := m.cfg.Providers.Jira.BaseURL
@@ -259,7 +259,7 @@ func (m JiraConfigModel) renderScopeField(focused bool) string {
 
 func (m JiraConfigModel) renderDoneView() string {
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  setup  /  jira", m.width)
+	header := renderHeaderBar("⚡ flow  /  setup  /  jira", "", m.width)
 	footer := renderFooterBar("press any key to exit", m.width)
 
 	heading := lipgloss.NewStyle().

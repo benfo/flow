@@ -523,7 +523,7 @@ func (m Model) renderCreateView() string {
 	}
 
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar(breadcrumb, m.width)
+	header := renderHeaderBar(breadcrumb, m.headerRight(), m.width)
 	var footerText string
 	if m.confirm != nil {
 		footerText = renderConfirmFooter(m.confirm.question, m.confirm.destructive)

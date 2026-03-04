@@ -73,7 +73,7 @@ func (m Model) applyPickerTheme(name string) Model {
 }
 
 func (m Model) renderThemeView() string {
-	header := renderHeaderBar("⚡ flow  /  theme", m.width)
+	header := renderHeaderBar("⚡ flow  /  theme", m.headerRight(), m.width)
 	sep := renderSeparator(m.width)
 
 	themes := AvailableThemes()

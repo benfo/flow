@@ -438,7 +438,7 @@ func activateJira(active []string) []string {
 
 func (m JiraAuthModel) renderCredsView() string {
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  auth  /  jira  (1/2  credentials)", m.width)
+	header := renderHeaderBar("⚡ flow  /  auth  /  jira  (1/2  credentials)", "", m.width)
 	footer := renderFooterBar("tab  next field   enter  verify   esc  cancel", m.width)
 
 	hint := dimStyle.Padding(1, 2).Render(
@@ -465,7 +465,7 @@ func (m JiraAuthModel) renderCredsView() string {
 
 func (m JiraAuthModel) renderFiltersView() string {
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  auth  /  jira  (2/2  filters)", m.width)
+	header := renderHeaderBar("⚡ flow  /  auth  /  jira  (2/2  filters)", "", m.width)
 	footer := renderFooterBar("tab  next   ←/→  toggle scope   enter  save   esc  back", m.width)
 
 	hint := dimStyle.Padding(1, 2).Render(
@@ -550,7 +550,7 @@ func (m JiraAuthModel) renderScopeField(focused bool) string {
 
 func (m JiraAuthModel) renderDoneView() string {
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  auth  /  jira", m.width)
+	header := renderHeaderBar("⚡ flow  /  auth  /  jira", "", m.width)
 	footer := renderFooterBar("press any key to exit", m.width)
 
 	heading := lipgloss.NewStyle().

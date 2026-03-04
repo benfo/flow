@@ -274,7 +274,7 @@ func (m SetupModel) listHeight() int {
 
 func (m SetupModel) renderStepView() string {
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  setup", m.width)
+	header := renderHeaderBar("⚡ flow  /  setup", "", m.width)
 
 	step := m.currentStep()
 	total := len(m.steps)
@@ -318,7 +318,7 @@ func (m SetupModel) renderStepView() string {
 
 func (m SetupModel) renderDoneView() string {
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  setup", m.width)
+	header := renderHeaderBar("⚡ flow  /  setup", "", m.width)
 	footer := renderFooterBar("press any key to exit", m.width)
 
 	var body string

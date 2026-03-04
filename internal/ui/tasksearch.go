@@ -247,7 +247,7 @@ func (m Model) updateSearchView(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) renderSearchView() string {
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  find", m.width)
+	header := renderHeaderBar("⚡ flow  /  find", m.headerRight(), m.width)
 
 	var footerText string
 	if m.searchLoading {

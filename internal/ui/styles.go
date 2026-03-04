@@ -260,8 +260,18 @@ func priorityIndicator(p tasks.Priority) string {
 	}
 }
 
-func renderHeaderBar(title string, width int) string {
-	return appHeaderStyle.Width(width).Render(title)
+func renderHeaderBar(left, right string, width int) string {
+	if right == "" {
+		return appHeaderStyle.Width(width).Render(left)
+	}
+	// appHeaderStyle has Padding(0,1) = 1 char each side, so inner width = width-2.
+	innerWidth := width - 2
+	rightStyled := dimStyle.Render(right)
+	gap := innerWidth - lipgloss.Width(left) - lipgloss.Width(rightStyled)
+	if gap < 1 {
+		gap = 1
+	}
+	return appHeaderStyle.Width(width).Render(left + strings.Repeat(" ", gap) + rightStyled)
 }
 
 func renderFooterBar(help string, width int) string {

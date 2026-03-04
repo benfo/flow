@@ -178,7 +178,7 @@ func (m Model) updateHelpView(msg tea.Msg) (tea.Model, tea.Cmd) {
 // renderHelpView renders the full-screen help overlay.
 func (m Model) renderHelpView() string {
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  keyboard shortcuts", m.width)
+	header := renderHeaderBar("⚡ flow  /  keyboard shortcuts", m.headerRight(), m.width)
 
 	scrollPct := int(m.helpViewport.ScrollPercent() * 100)
 	footerHint := fitHints(

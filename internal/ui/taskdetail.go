@@ -418,7 +418,7 @@ func (m Model) renderDetailView() string {
 		id = m.selectedTask.ID
 	}
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  "+id, m.width)
+	header := renderHeaderBar("⚡ flow  /  "+id, m.headerRight(), m.width)
 
 	// Show the 4 most relevant actions for this task + help.
 	// Navigation (↑/↓, esc) and less-used keys live in the ? overlay.

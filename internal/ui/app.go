@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"strings"
 	"time"
 
 	"github.com/benfo/flow/internal/config"
+	"github.com/benfo/flow/internal/git"
 	"github.com/benfo/flow/internal/tasks"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -135,6 +137,16 @@ type currentBranchMsg struct {
 	activeTask string // task ID extracted from branch name, may be empty
 }
 
+// gitDirtyMsg carries the result of the async git dirty-state check.
+type gitDirtyMsg struct{ dirty bool }
+
+// gitDirtyCmd checks whether the working tree has uncommitted changes.
+func gitDirtyCmd() tea.Cmd {
+	return func() tea.Msg {
+		return gitDirtyMsg{dirty: git.IsDirty()}
+	}
+}
+
 // detailNavEntry is one frame in the detail navigation back-stack.
 type detailNavEntry struct {
 	task        tasks.Task
@@ -195,6 +207,7 @@ type Model struct {
 
 	activeBranch  string            // currently checked-out git branch name
 	activeTaskID  string            // task ID extracted from activeBranch
+	gitDirty      bool              // true when working tree has uncommitted changes
 	localBranches map[string]string // taskID → local branch name (not active)
 
 	statusMessage string // transient feedback shown in the footer
@@ -237,7 +250,7 @@ func New(provider tasks.Provider, cfg config.Config) (Model, error) {
 
 // Init kicks off the async task load and starts the spinner animation.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider), currentBranchCmd(), scanLocalBranchesCmd())
+	return tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider), currentBranchCmd(), scanLocalBranchesCmd(), gitDirtyCmd())
 }
 
 // loadTasksCmd returns a Cmd that fetches tasks in the background.
@@ -359,6 +372,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if branch, ok := msg.(currentBranchMsg); ok {
 		m.activeBranch = branch.branch
 		m.activeTaskID = branch.activeTask
+		return m, nil
+	}
+
+	// Handle git dirty-state result.
+	if d, ok := msg.(gitDirtyMsg); ok {
+		m.gitDirty = d.dirty
 		return m, nil
 	}
 
@@ -528,11 +547,40 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	return m
 }
 
-// ── Loading / error views ─────────────────────────────────────────────────────
+// headerRight builds the right-aligned context string for the header bar:
+// provider name (+ first project if configured) and git branch (with dirty marker).
+func (m Model) headerRight() string {
+	var parts []string
+
+	// Provider chip — skip "mock" (dev/test mode).
+	if len(m.cfg.Providers.Active) > 0 {
+		p := m.cfg.Providers.Active[0]
+		if p != "mock" {
+			label := strings.ToUpper(p[:1]) + p[1:]
+			if p == "jira" && m.cfg.Providers.Jira != nil && len(m.cfg.Providers.Jira.Projects) > 0 {
+				label += " · " + strings.Join(m.cfg.Providers.Jira.Projects, ", ")
+			}
+			parts = append(parts, label)
+		}
+	}
+
+	// Git branch + dirty indicator.
+	if m.activeBranch != "" {
+		b := "⎇  " + m.activeBranch
+		if m.gitDirty {
+			b += " ✎"
+		}
+		parts = append(parts, b)
+	}
+
+	return strings.Join(parts, "   ")
+}
+
+
 
 func (m Model) renderLoadingView() string {
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow", m.width)
+	header := renderHeaderBar("⚡ flow", m.headerRight(), m.width)
 	footer := renderFooterBar("loading…", m.width)
 
 	content := lipgloss.NewStyle().
@@ -545,7 +593,7 @@ func (m Model) renderLoadingView() string {
 
 func (m Model) renderErrorView() string {
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow", m.width)
+	header := renderHeaderBar("⚡ flow", m.headerRight(), m.width)
 	footer := renderFooterBar("r  retry   q  quit", m.width)
 
 	content := lipgloss.NewStyle().Padding(2, 2).Render(
