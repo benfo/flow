@@ -270,12 +270,12 @@ func renderHeaderBar(left, right string, width int) string {
 	}
 	// appHeaderStyle has Padding(0,1) = 1 char each side, so inner width = width-2.
 	innerWidth := width - 2
-	rightStyled := dimStyle.Render(right)
-	gap := innerWidth - lipgloss.Width(left) - lipgloss.Width(rightStyled)
+	// right may already contain pre-styled segments (e.g. update badge); don't re-dim it.
+	gap := innerWidth - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
 	}
-	return appHeaderStyle.Width(width).Render(left + strings.Repeat(" ", gap) + rightStyled)
+	return appHeaderStyle.Width(width).Render(left + strings.Repeat(" ", gap) + right)
 }
 
 func renderFooterBar(help string, width int) string {

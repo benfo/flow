@@ -668,8 +668,13 @@ func (m Model) headerRight() string {
 	var parts []string
 
 	// Update badge — shown when a newer release is available.
+	// Rendered with a distinct accent style so it stands out from the dimmed right-side text.
 	if m.updateAvailable != "" {
-		parts = append(parts, "⬆ "+m.updateAvailable)
+		badge := lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Bold(true).
+			Render("⬆ " + m.updateAvailable)
+		parts = append(parts, badge)
 	}
 
 	// Provider chip — skip "mock" (dev/test mode).
@@ -680,7 +685,7 @@ func (m Model) headerRight() string {
 			if p == "jira" && m.cfg.Providers.Jira != nil && len(m.cfg.Providers.Jira.Projects) > 0 {
 				label += " · " + strings.Join(m.cfg.Providers.Jira.Projects, ", ")
 			}
-			parts = append(parts, label)
+			parts = append(parts, dimStyle.Render(label))
 		}
 	}
 
@@ -690,7 +695,7 @@ func (m Model) headerRight() string {
 		if m.gitDirty {
 			b += " ✎"
 		}
-		parts = append(parts, b)
+		parts = append(parts, dimStyle.Render(b))
 	}
 
 	return strings.Join(parts, "   ")
