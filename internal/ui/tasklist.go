@@ -312,13 +312,19 @@ func (m Model) renderListView() string {
 
 	var content string
 	if len(m.list.VisibleItems()) == 0 {
+		var msg string
 		if m.statusFilter != noStatusFilter {
-			content = emptyStateStyle.Render("No " + m.statusFilter.String() + " tasks.")
+			msg = "No " + m.statusFilter.String() + " tasks."
 		} else if m.list.FilterState() == list.FilterApplied {
-			content = emptyStateStyle.Render("No tasks match your filter.")
+			msg = "No tasks match your filter."
 		} else {
-			content = emptyStateStyle.Render("No tasks.")
+			msg = "No tasks."
 		}
+		// Use the same height the list occupies so the footer stays pinned.
+		content = lipgloss.NewStyle().
+			Width(m.width).
+			Height(m.height - verticalOverhead).
+			Render(emptyStateStyle.Render(msg))
 	} else {
 		content = m.list.View()
 	}
