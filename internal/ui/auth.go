@@ -69,9 +69,10 @@ type JiraAuthModel struct {
 	savedTo  string // primary path config was saved to
 	userName string // from /rest/api/3/myself
 
-	repoRoot string
-	width    int
-	height   int
+	repoRoot   string
+	standalone bool // true when running as a standalone command (flow auth jira)
+	width      int
+	height     int
 }
 
 // NewJiraAuthModel builds the wizard, pre-populating fields from any existing config.
@@ -119,7 +120,17 @@ func NewJiraAuthModel(cfg config.Config, repoRoot string) JiraAuthModel {
 		hasRepo:       repoRoot != "",
 		spinner:       sp,
 		repoRoot:      repoRoot,
+		standalone:    true,
 	}
+}
+
+// NewJiraAuthModelEmbedded builds the wizard for use embedded inside the main app.
+// When cancelled or completed it sends jiraAuthCancelledMsg / jiraAuthDoneMsg
+// instead of quitting the program.
+func NewJiraAuthModelEmbedded(cfg config.Config, repoRoot string) JiraAuthModel {
+	m := NewJiraAuthModel(cfg, repoRoot)
+	m.standalone = false
+	return m
 }
 
 // ── tea.Model ─────────────────────────────────────────────────────────────────
@@ -169,7 +180,10 @@ func (m JiraAuthModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case authStageFilters:
 			return m.updateFiltersStage(msg)
 		case authStageDone:
-			return m, tea.Quit
+			if m.standalone {
+				return m, tea.Quit
+			}
+			return m, func() tea.Msg { return jiraAuthDoneMsg{} }
 		}
 	}
 
@@ -214,8 +228,13 @@ func (m JiraAuthModel) updateCredsStage(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg.String() {
-	case "ctrl+c", "esc":
+	case "ctrl+c":
 		return m, tea.Quit
+	case "esc":
+		if m.standalone {
+			return m, tea.Quit
+		}
+		return m, func() tea.Msg { return jiraAuthCancelledMsg{} }
 	case "tab", "down":
 		return m.credsFocusNext(), nil
 	case "shift+tab", "up":
@@ -551,7 +570,7 @@ func (m JiraAuthModel) renderScopeField(focused bool) string {
 func (m JiraAuthModel) renderDoneView() string {
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  auth  /  jira", "", m.width)
-	footer := renderFooterBar("press any key to exit", m.width)
+	footer := renderFooterBar("press any key to continue", m.width)
 
 	heading := lipgloss.NewStyle().
 		Foreground(colorStatusDone).Bold(true).Padding(1, 2).
@@ -575,7 +594,11 @@ func (m JiraAuthModel) renderDoneView() string {
 		renderDoneRow("Config", m.savedTo),
 	}, "\n")
 
-	next := dimStyle.Padding(1, 2).Render("Run 'flow' to open the dashboard.")
+	nextText := "Run 'flow' to open the dashboard."
+	if !m.standalone {
+		nextText = "Press any key to continue to the dashboard."
+	}
+	next := dimStyle.Padding(1, 2).Render(nextText)
 
 	body := lipgloss.JoinVertical(lipgloss.Left, heading, rows, next)
 	return lipgloss.JoinVertical(lipgloss.Left, header, sep, body, sep, footer)

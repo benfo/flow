@@ -49,19 +49,23 @@ func runDashboard(_ *cobra.Command, _ []string) error {
 	})
 	registry.Register("jira", jira.New)
 
-	ps, buildErr := registry.Build(cfg, kr)
-	if buildErr != nil {
-		fmt.Fprintf(os.Stderr, "warning: %v\n", buildErr)
+	providerFactory := func(c config.Config) (tasks.Provider, error) {
+		ps, buildErr := registry.Build(c, kr)
+		if buildErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: %v\n", buildErr)
+		}
+		if len(ps) == 0 {
+			ps = append(ps, tasks.NewMockProvider())
+		}
+		return providers.NewComposite(ps), nil
 	}
 
-	// Fall back to mock when no real providers are configured.
-	if len(ps) == 0 {
-		ps = append(ps, tasks.NewMockProvider())
+	provider, err := providerFactory(cfg)
+	if err != nil {
+		return fmt.Errorf("initialising provider: %w", err)
 	}
 
-	provider := providers.NewComposite(ps)
-
-	model, err := ui.New(provider, cfg)
+	model, err := ui.New(provider, cfg, providerFactory)
 	if err != nil {
 		return fmt.Errorf("initialising dashboard: %w", err)
 	}

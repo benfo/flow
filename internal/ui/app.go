@@ -30,6 +30,8 @@ const (
 	viewComments viewState = iota
 	viewTheme    viewState = iota
 	viewError    viewState = iota
+	viewOnboard  viewState = iota // shown on first run, before any provider is configured
+	viewAuthJira viewState = iota // embedded Jira auth wizard
 )
 
 // verticalOverhead is the number of rows consumed by the header, two separator
@@ -131,6 +133,12 @@ type themeSavedMsg struct {
 	err error
 }
 
+// jiraAuthDoneMsg is sent by the embedded JiraAuthModel when Jira auth completes.
+type jiraAuthDoneMsg struct{}
+
+// jiraAuthCancelledMsg is sent by the embedded JiraAuthModel when the user cancels.
+type jiraAuthCancelledMsg struct{}
+
 // currentBranchMsg carries the result of the async git branch detection.
 type currentBranchMsg struct {
 	branch     string // raw branch name, empty if not in a repo
@@ -210,6 +218,9 @@ type Model struct {
 	gitDirty      bool              // true when working tree has uncommitted changes
 	localBranches map[string]string // taskID → local branch name (not active)
 
+	jiraAuthModel   JiraAuthModel                                    // embedded auth wizard (viewAuthJira)
+	providerFactory func(config.Config) (tasks.Provider, error)      // rebuilds provider after auth
+
 	statusMessage string // transient feedback shown in the footer
 	loadErr       string // shown in viewError
 	width         int
@@ -218,7 +229,7 @@ type Model struct {
 
 // New constructs the Model. Task loading is deferred to Init() so the UI
 // can show a spinner while the network request is in flight.
-func New(provider tasks.Provider, cfg config.Config) (Model, error) {
+func New(provider tasks.Provider, cfg config.Config, factory func(config.Config) (tasks.Provider, error)) (Model, error) {
 	SetTheme(cfg.Theme)
 	initStyles()
 
@@ -237,19 +248,35 @@ func New(provider tasks.Provider, cfg config.Config) (Model, error) {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(colorPrimary)
 
+	initialState := viewLoading
+	if isFirstRun(cfg) {
+		initialState = viewOnboard
+	}
+
 	return Model{
-		list:     l,
-		spinner:  sp,
-		cfg:      cfg,
-		provider: provider,
-		state:    viewLoading,
+		list:            l,
+		spinner:         sp,
+		cfg:             cfg,
+		provider:        provider,
+		state:           initialState,
+		providerFactory: factory,
 	}, nil
+}
+
+// isFirstRun returns true when no real provider has been configured yet.
+func isFirstRun(cfg config.Config) bool {
+	active := cfg.Providers.Active
+	return len(active) == 0 || (len(active) == 1 && active[0] == "mock")
 }
 
 // ── tea.Model interface ───────────────────────────────────────────────────────
 
 // Init kicks off the async task load and starts the spinner animation.
 func (m Model) Init() tea.Cmd {
+	if m.state == viewOnboard {
+		// Don't load tasks or start the spinner on first run; wait for user choice.
+		return tea.Batch(currentBranchCmd(), scanLocalBranchesCmd(), gitDirtyCmd())
+	}
 	return tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider), currentBranchCmd(), scanLocalBranchesCmd(), gitDirtyCmd())
 }
 
@@ -418,6 +445,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle embedded Jira auth completion: reload config and reinitialise provider.
+	if _, ok := msg.(jiraAuthDoneMsg); ok {
+		repoRoot, _ := git.RepoRoot()
+		newCfg, err := config.Load(repoRoot)
+		if err != nil {
+			newCfg = m.cfg
+		}
+		m.cfg = newCfg
+		if m.providerFactory != nil {
+			if p, factoryErr := m.providerFactory(newCfg); factoryErr == nil {
+				m.provider = p
+			}
+		}
+		m.state = viewLoading
+		return m, tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider))
+	}
+
+	// Handle embedded Jira auth cancellation: return to the welcome screen.
+	if _, ok := msg.(jiraAuthCancelledMsg); ok {
+		m.state = viewOnboard
+		return m, nil
+	}
+
 	// Toggle help overlay from non-input views.
 	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "?" {
 		switch m.state {
@@ -442,7 +492,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// Delegate all messages to the embedded auth wizard when it is active.
+	if m.state == viewAuthJira {
+		newAuth, cmd := m.jiraAuthModel.Update(msg)
+		if jam, ok := newAuth.(JiraAuthModel); ok {
+			m.jiraAuthModel = jam
+		}
+		return m, cmd
+	}
+
 	switch m.state {
+	case viewOnboard:
+		return m.updateOnboardView(msg)
 	case viewList:
 		return m.updateListView(msg)
 	case viewDetail:
@@ -488,6 +549,10 @@ func (m Model) View() string {
 	switch m.state {
 	case viewLoading:
 		return m.renderLoadingView()
+	case viewOnboard:
+		return m.renderWelcomeView()
+	case viewAuthJira:
+		return m.jiraAuthModel.View()
 	case viewList:
 		return m.renderListView()
 	case viewDetail:
@@ -543,6 +608,14 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 
 	m.searchModel.width = msg.Width
 	m.searchModel.height = msg.Height
+
+	m.jiraAuthModel.width = msg.Width
+	m.jiraAuthModel.height = msg.Height
+	inputWidth := msg.Width - 10
+	for i := range m.jiraAuthModel.inputs {
+		m.jiraAuthModel.inputs[i].Width = inputWidth
+	}
+	m.jiraAuthModel.projectsInput.Width = inputWidth
 
 	return m
 }
