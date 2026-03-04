@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/benfo/flow/internal/tasks"
@@ -120,6 +121,65 @@ func (m Model) localBranchForTask(taskID string) string {
 	return m.localBranches[taskID]
 }
 
+// applyFilterSort applies m.statusFilter and m.sort to m.tasks and
+// updates the list items. Call it whenever either setting changes.
+func (m *Model) applyFilterSort() {
+	filtered := make([]tasks.Task, 0, len(m.tasks))
+	for _, t := range m.tasks {
+		if m.statusFilter == noStatusFilter || t.Status == m.statusFilter {
+			filtered = append(filtered, t)
+		}
+	}
+
+	// Sort the filtered slice.
+	sort.SliceStable(filtered, func(i, j int) bool {
+		switch m.sort {
+		case sortPriority:
+			return filtered[i].Priority > filtered[j].Priority
+		case sortStatus:
+			return filtered[i].Status < filtered[j].Status
+		case sortUpdated:
+			return filtered[i].UpdatedAt.After(filtered[j].UpdatedAt)
+		default: // sortProvider — preserve original order (already stable)
+			return false
+		}
+	})
+
+	items := make([]list.Item, len(filtered))
+	for i, t := range filtered {
+		items[i] = m.makeTaskItem(t)
+	}
+	m.list.SetItems(items)
+}
+
+// sortLabel returns a short display string for the active sort order.
+func (m Model) sortLabel() string {
+	switch m.sort {
+	case sortPriority:
+		return "priority ↓"
+	case sortStatus:
+		return "status"
+	case sortUpdated:
+		return "updated ↓"
+	default:
+		return ""
+	}
+}
+
+// filterLabel returns a short display string for the active status filter.
+func (m Model) filterLabel() string {
+	if m.statusFilter == noStatusFilter {
+		return ""
+	}
+	label := m.statusFilter.String()
+	if item, ok := m.list.SelectedItem().(taskItem); ok {
+		if item.task.Status == m.statusFilter && item.task.ProviderStatus != "" {
+			label = item.task.ProviderStatus
+		}
+	}
+	return label
+}
+
 // handleTasksLoaded populates the list when the async fetch completes.
 func (m Model) handleTasksLoaded(msg tasksLoadedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
@@ -127,13 +187,8 @@ func (m Model) handleTasksLoaded(msg tasksLoadedMsg) (tea.Model, tea.Cmd) {
 		m.state = viewError
 		return m, nil
 	}
-
-	items := make([]list.Item, len(msg.tasks))
-	for i, t := range msg.tasks {
-		items[i] = m.makeTaskItem(t)
-	}
-	m.list.SetItems(items)
 	m.tasks = msg.tasks
+	m.applyFilterSort()
 	m.state = viewList
 	return m, nil
 }
@@ -165,6 +220,48 @@ func (m Model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, copyToClipboardCmd(text)
 				}
+			// ── Status filter: 1-4 = specific status, 0 = all ────────────
+			case "0":
+				m.statusFilter = noStatusFilter
+				m.applyFilterSort()
+				return m, nil
+			case "1":
+				m.statusFilter = tasks.StatusTodo
+				m.applyFilterSort()
+				return m, nil
+			case "2":
+				m.statusFilter = tasks.StatusInProgress
+				m.applyFilterSort()
+				return m, nil
+			case "3":
+				m.statusFilter = tasks.StatusInReview
+				m.applyFilterSort()
+				return m, nil
+			case "4":
+				m.statusFilter = tasks.StatusDone
+				m.applyFilterSort()
+				return m, nil
+			// ── Tab cycles through status filters ─────────────────────────
+			case "tab":
+				switch m.statusFilter {
+				case noStatusFilter:
+					m.statusFilter = tasks.StatusTodo
+				case tasks.StatusTodo:
+					m.statusFilter = tasks.StatusInProgress
+				case tasks.StatusInProgress:
+					m.statusFilter = tasks.StatusInReview
+				case tasks.StatusInReview:
+					m.statusFilter = tasks.StatusDone
+				default:
+					m.statusFilter = noStatusFilter
+				}
+				m.applyFilterSort()
+				return m, nil
+			// ── S cycles sort orders ──────────────────────────────────────
+			case "S":
+				m.sort = (m.sort + 1) % 4
+				m.applyFilterSort()
+				return m, nil
 			}
 		}
 	}
@@ -193,7 +290,15 @@ func (m Model) renderListView() string {
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
 		hints = append(hints, "n  new")
 	}
-	hints = append(hints, "?  help")
+	hints = append(hints, "1-4  filter", "S  sort", "?  help")
+
+	// Append active filter/sort chips so the user knows the current state.
+	if fl := m.filterLabel(); fl != "" {
+		hints = append(hints, "["+fl+"]")
+	}
+	if sl := m.sortLabel(); sl != "" {
+		hints = append(hints, "↕ "+sl)
+	}
 
 	var footerContent string
 	if m.confirm != nil {
@@ -206,8 +311,14 @@ func (m Model) renderListView() string {
 	footer := renderFooterBar(footerContent, m.width)
 
 	var content string
-	if len(m.list.VisibleItems()) == 0 && m.list.FilterState() == list.FilterApplied {
-		content = emptyStateStyle.Render("No tasks match your filter.")
+	if len(m.list.VisibleItems()) == 0 {
+		if m.statusFilter != noStatusFilter {
+			content = emptyStateStyle.Render("No " + m.statusFilter.String() + " tasks.")
+		} else if m.list.FilterState() == list.FilterApplied {
+			content = emptyStateStyle.Render("No tasks match your filter.")
+		} else {
+			content = emptyStateStyle.Render("No tasks.")
+		}
 	} else {
 		content = m.list.View()
 	}

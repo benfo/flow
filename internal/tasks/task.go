@@ -2,6 +2,8 @@
 // that all task integrations must satisfy.
 package tasks
 
+import "time"
+
 // Status represents the workflow state of a task.
 type Status int
 
@@ -67,8 +69,9 @@ type Task struct {
 	Assignee       string
 	Labels         []string
 	Project        string
-	ParentID       string // empty if top-level task
-	HasChildren    bool   // hint: true if this task has subtasks (avoids N+1 on list)
+	ParentID       string    // empty if top-level task
+	HasChildren    bool      // hint: true if this task has subtasks (avoids N+1 on list)
+	UpdatedAt      time.Time // zero value when provider does not supply it
 }
 
 // CreateInput is the provider-agnostic description of a new task or subtask.

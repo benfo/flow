@@ -35,8 +35,17 @@ const (
 	viewAuthJira viewState = iota // embedded Jira auth wizard
 )
 
-// verticalOverhead is the number of rows consumed by the header, two separator
-// lines, and the footer bar that surround the main content area.
+// sortOrder controls how the task list is ordered.
+type sortOrder int
+
+const (
+	sortProvider sortOrder = iota // original provider order
+	sortPriority                  // priority descending (Critical first)
+	sortStatus                    // canonical status order
+	sortUpdated                   // most recently updated first
+)
+
+const noStatusFilter = tasks.Status(-1) // sentinel: show all statuses
 const verticalOverhead = 4 // header(1) + separator(1) + separator(1) + footer(1)
 
 // tasksLoadedMsg carries the result of an async task fetch.
@@ -238,6 +247,8 @@ type Model struct {
 
 	statusMessage string // transient feedback shown in the footer
 	loadErr       string // shown in viewError
+	statusFilter  tasks.Status // noStatusFilter (-1) means show all
+	sort          sortOrder
 	width         int
 	height        int
 }
@@ -276,6 +287,7 @@ func New(provider tasks.Provider, cfg config.Config, factory func(config.Config)
 		state:           initialState,
 		providerFactory: factory,
 		buildInfo:       info,
+		statusFilter:    noStatusFilter,
 	}, nil
 }
 
@@ -447,11 +459,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.localBranches = scanned.branches
 		// Rebuild list items so branch badges reflect the new data.
 		if len(m.tasks) > 0 {
-			items := make([]list.Item, len(m.tasks))
-			for i, t := range m.tasks {
-				items[i] = m.makeTaskItem(t)
-			}
-			m.list.SetItems(items)
+			m.applyFilterSort()
 		}
 		return m, nil
 	}

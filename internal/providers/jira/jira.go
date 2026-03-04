@@ -546,6 +546,24 @@ func formatJiraTime(s string) string {
 	return s
 }
 
+// parseJiraTime parses a Jira timestamp string into a time.Time.
+// Returns zero time if the string is empty or unparseable.
+func parseJiraTime(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	for _, layout := range []string{
+		"2006-01-02T15:04:05.999-0700",
+		"2006-01-02T15:04:05.999Z",
+		time.RFC3339,
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
 // ── Comment API types ─────────────────────────────────────────────────────────
 
 type commentListResponse struct {
@@ -755,6 +773,7 @@ type issueFields struct {
 	Labels      []string       `json:"labels"`
 	Project     issueProject   `json:"project"`
 	Parent      *issueParent   `json:"parent"`
+	Updated     string         `json:"updated"` // RFC3339 / Jira date-time string
 	Subtasks    []issueRef     `json:"subtasks"`
 }
 
@@ -838,18 +857,19 @@ func mapIssue(iss issue, baseURL string) tasks.Task {
 	}
 
 	return tasks.Task{
-		ID:          iss.Key,
-		Title:       f.Summary,
-		Description: extractText(f.Description),
+		ID:             iss.Key,
+		Title:          f.Summary,
+		Description:    extractText(f.Description),
 		Status:         mapStatus(f.Status.StatusCategory.Key),
 		ProviderStatus: f.Status.Name,
-		Priority:    mapPriority(f.Priority),
-		URL:         strings.TrimRight(baseURL, "/") + "/browse/" + iss.Key,
-		Assignee:    assignee,
-		Labels:      f.Labels,
-		Project:     f.Project.Name,
-		ParentID:    parentID,
-		HasChildren: len(f.Subtasks) > 0,
+		Priority:       mapPriority(f.Priority),
+		URL:            strings.TrimRight(baseURL, "/") + "/browse/" + iss.Key,
+		Assignee:       assignee,
+		Labels:         f.Labels,
+		Project:        f.Project.Name,
+		ParentID:       parentID,
+		HasChildren:    len(f.Subtasks) > 0,
+		UpdatedAt:      parseJiraTime(f.Updated),
 	}
 }
 
