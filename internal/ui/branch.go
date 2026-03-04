@@ -66,13 +66,13 @@ func (m Model) openBranchView() (tea.Model, tea.Cmd) {
 
 	if !igit.IsRepo() {
 		m.statusMessage = "✗  Not inside a Git repository"
-		return m, nil
+		return m, clearStatusCmd()
 	}
 
 	// If this task's branch is already checked out, say so and stay put.
 	if m.branchForTask(m.selectedTask.ID) != "" {
 		m.statusMessage = "✓  Already on branch: " + m.activeBranch
-		return m, nil
+		return m, clearStatusCmd()
 	}
 
 	// If a local branch for this task already exists (but isn't checked out),
@@ -132,14 +132,14 @@ func (m Model) updateBranchView(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.statusMessage = "✗  " + err.Error()
 					m.state = viewDetail
 					m.localBranch = ""
-					return m, nil
+					return m, clearStatusCmd()
 				}
 				m.activeBranch = name
 				m.activeTaskID = extractTaskID(name)
 				m.localBranch = ""
 				m.statusMessage = "✓  Stashed, switched to: " + name
 				m.state = m.detailReturnState
-				return m, scanLocalBranchesCmd()
+				return m, tea.Batch(scanLocalBranchesCmd(), clearStatusCmd())
 			case "n", "esc":
 				m.confirmingStash = false
 				m.state = m.detailReturnState
@@ -166,14 +166,14 @@ func (m Model) updateBranchView(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.statusMessage = "✗  " + err.Error()
 					m.state = m.detailReturnState
 					m.localBranch = ""
-					return m, nil
+					return m, clearStatusCmd()
 				}
 				m.activeBranch = name
 				m.activeTaskID = extractTaskID(name)
 				m.localBranch = ""
 				m.statusMessage = "✓  Switched to branch: " + name
 				m.state = m.detailReturnState
-				return m, scanLocalBranchesCmd()
+				return m, tea.Batch(scanLocalBranchesCmd(), clearStatusCmd())
 			case "n", "esc":
 				m.confirmingCheckout = false
 				m.localBranch = ""
@@ -194,15 +194,15 @@ func (m Model) updateBranchView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusMessage = "✓  Branch created: " + name
 				m.state = m.detailReturnState
 				if su, ok := m.provider.(tasks.StatusUpdater); ok && m.selectedTask != nil {
-					return m, loadTransitionsForAutoCmd(su, m.selectedTask.ID)
+					return m, tea.Batch(loadTransitionsForAutoCmd(su, m.selectedTask.ID), clearStatusCmd())
 				}
-				return m, nil
+				return m, clearStatusCmd()
 			case "n", "esc":
 				m.pendingTransitionPrompt = false
 				name := strings.TrimSpace(m.branchInput.Value())
 				m.statusMessage = "✓  Branch created: " + name
 				m.state = m.detailReturnState
-				return m, nil
+				return m, clearStatusCmd()
 			}
 		}
 		return m, nil
@@ -257,7 +257,7 @@ func (m Model) confirmBranch() (tea.Model, tea.Cmd) {
 
 	m.statusMessage = "✓  Branch created: " + name
 	m.state = m.detailReturnState
-	return m, scanLocalBranchesCmd()
+	return m, tea.Batch(scanLocalBranchesCmd(), clearStatusCmd())
 }
 
 func (m Model) renderBranchView() string {

@@ -233,7 +233,7 @@ func (m Model) handleSelfAssigned(msg selfAssignedMsg) (tea.Model, tea.Cmd) {
 	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width, m.branchForTask(m.selectedTask.ID), m.localBranchForTask(m.selectedTask.ID)))
 
 	m.statusMessage = "✓  Assigned to you"
-	return m, nil
+	return m, clearStatusCmd()
 }
 
 // ── Detail view ───────────────────────────────────────────────────────────────

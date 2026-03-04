@@ -296,7 +296,7 @@ func (m Model) handleTaskSaved(msg taskSavedMsg) (tea.Model, tea.Cmd) {
 
 	m.statusMessage = "✓  Saved"
 	m.state = viewDetail
-	return m, nil
+	return m, clearStatusCmd()
 }
 
 func (m Model) renderEditView() string {

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	"github.com/benfo/flow/internal/config"
 	"github.com/benfo/flow/internal/tasks"
 	"github.com/charmbracelet/bubbles/list"
@@ -110,6 +112,16 @@ type parentTaskLoadedMsg struct {
 // prOpenedMsg carries the result of attempting to open a PR URL in the browser.
 type prOpenedMsg struct {
 	err error
+}
+
+// clearStatusMsg is sent by clearStatusCmd to erase the transient status bar
+// message after a short delay, restoring the normal footer shortcuts.
+type clearStatusMsg struct{}
+
+// clearStatusCmd schedules a clearStatusMsg to be delivered after 2.5 seconds.
+// Call it with tea.Batch whenever you set m.statusMessage to a transient value.
+func clearStatusCmd() tea.Cmd {
+	return tea.Tick(2500*time.Millisecond, func(_ time.Time) tea.Msg { return clearStatusMsg{} })
 }
 
 // themeSavedMsg carries the result of saving the theme to the global config.
@@ -302,6 +314,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMessage = "✓ copied to clipboard"
 		}
+		return m, clearStatusCmd()
+	}
+
+	// Clear the transient status message after the auto-dismiss timer fires.
+	if _, ok := msg.(clearStatusMsg); ok {
+		m.statusMessage = ""
 		return m, nil
 	}
 

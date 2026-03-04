@@ -120,7 +120,7 @@ func (m Model) handleTransitionsLoaded(msg transitionsLoadedMsg) (tea.Model, tea
 	if msg.err != nil {
 		m.statusMessage = "✗  " + msg.err.Error()
 		m.state = viewDetail
-		return m, nil
+		return m, clearStatusCmd()
 	}
 	sm := NewTaskStatusModel(msg.transitions)
 	sm.width = m.width
@@ -133,10 +133,8 @@ func (m Model) handleTaskTransitioned(msg taskTransitionedMsg) (tea.Model, tea.C
 	if msg.err != nil {
 		m.statusMessage = "✗  " + msg.err.Error()
 		m.state = viewDetail
-		return m, nil
+		return m, clearStatusCmd()
 	}
-
-	// Update the task in local state.
 	for i := range m.tasks {
 		if m.tasks[i].ID == msg.task.ID {
 			m.tasks[i] = msg.task
@@ -160,7 +158,7 @@ func (m Model) handleTaskTransitioned(msg taskTransitionedMsg) (tea.Model, tea.C
 
 	m.statusMessage = "✓  Status changed to: " + msg.task.Status.String()
 	m.state = viewDetail
-	return m, nil
+	return m, clearStatusCmd()
 }
 
 func (m Model) updateStatusView(msg tea.Msg) (tea.Model, tea.Cmd) {
