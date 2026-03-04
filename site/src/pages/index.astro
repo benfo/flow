@@ -3,6 +3,19 @@ const rawBase = import.meta.env.BASE_URL;
 const base = rawBase.endsWith('/') ? rawBase : rawBase + '/';
 const docsUrl = `${base}getting-started/introduction/`;
 const githubUrl = 'https://github.com/benfo/flow';
+
+// Fetch the latest release version at build time so the site always reflects
+// the current release without any manual update.
+let latestVersion = 'latest';
+try {
+  const res = await fetch('https://api.github.com/repos/benfo/flow/releases/latest', {
+    headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'flow-site' }
+  });
+  if (res.ok) {
+    const data = await res.json();
+    latestVersion = data.tag_name ?? latestVersion;
+  }
+} catch (_) { /* silently fall back to 'latest' */ }
 ---
 
 <!DOCTYPE html>
@@ -489,7 +502,7 @@ const githubUrl = 'https://github.com/benfo/flow';
   <!-- ── Hero ────────────────────────────────── -->
   <section class="hero">
     <div class="hero-text">
-      <div class="hero-eyebrow">Open source · Free · v0.1.0-beta.4</div>
+      <div class="hero-eyebrow">Open source · Free · {latestVersion}</div>
       <h1>Your issue tracker.<br /><em>In your terminal.</em></h1>
       <p class="hero-sub">
         A keyboard-driven TUI that brings tasks, comments, and branches together
