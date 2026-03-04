@@ -171,6 +171,7 @@ type Model struct {
 	activeTaskID            string // task ID extracted from activeBranch
 	localBranches           map[string]string // taskID → local branch name (not active)
 	confirmingCheckout      bool   // true when offering to checkout an existing branch
+	confirmingStash         bool   // true when offering to stash + checkout (dirty worktree)
 	pendingTransitionPrompt bool   // true when offering to transition after branch create
 	localBranch             string // local branch found for selected task (not yet checked out)
 

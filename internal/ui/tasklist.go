@@ -72,16 +72,18 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 
 	row2 := indent + statusBadge + "   " + priorityBadge
 	if t.activeBranch != "" {
-		// Active branch — bold primary colour with filled circle marker.
+		// Active branch — pill with primary background for high visibility.
 		branchLabel := lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorPrimary).
-			Render("● " + t.activeBranch)
+			Foreground(colorSurface).
+			Background(colorPrimary).
+			Padding(0, 1).
+			Render("⎇  " + t.activeBranch)
 		row2 += "   " + branchLabel
 	} else if t.localBranch != "" {
-		// Local branch exists but not checked out — subtle with branch glyph.
+		// Local branch exists but not checked out — foreground only, subtle.
 		branchLabel := lipgloss.NewStyle().
-			Foreground(colorSubtle).
+			Foreground(colorPrimary).
 			Render("⎇  " + t.localBranch)
 		row2 += "   " + branchLabel
 	}
@@ -144,6 +146,8 @@ func (m Model) updateListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "enter":
 				return m.openDetail()
+			case "b":
+				return m.openBranchViewFromList()
 			case "n":
 				return m.openCreateView(nil)
 			case "f":
@@ -184,7 +188,7 @@ func (m Model) renderListView() string {
 
 	// Primary hints: the 4 most contextual actions + help. Navigation keys
 	// (↑/↓, /, esc) are omitted — users learn them quickly.
-	hints := []string{"enter  open", "y  copy", "f  find"}
+	hints := []string{"enter  open", "b  branch", "y  copy", "f  find"}
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
 		hints = append(hints, "n  new")
 	}

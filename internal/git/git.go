@@ -67,7 +67,33 @@ func AllLocalBranches() ([]string, error) {
 	return branches, nil
 }
 
-// FindLocalBranch returns the name of the first local branch whose name
+// IsDirty reports whether the working directory has uncommitted changes.
+func IsDirty() bool {
+	out, err := exec.Command("git", "status", "--porcelain").Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(out))) > 0
+}
+
+// StashAndCheckout stashes the working directory, checks out branch, then
+// pops the stash. Returns an error if any step fails.
+func StashAndCheckout(branch string) error {
+	if out, err := exec.Command("git", "stash", "push", "--include-untracked", "-m", "flow: auto-stash before checkout").CombinedOutput(); err != nil {
+		return fmt.Errorf("stash failed: %s", strings.TrimSpace(string(out)))
+	}
+	if err := CheckoutBranch(branch); err != nil {
+		// Try to restore even if checkout fails.
+		_ = exec.Command("git", "stash", "pop").Run()
+		return err
+	}
+	if out, err := exec.Command("git", "stash", "pop").CombinedOutput(); err != nil {
+		return fmt.Errorf("switched branch but stash pop failed: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+
 // contains taskID (case-insensitive). Returns "" if none found.
 func FindLocalBranch(taskID string) string {
 	out, err := exec.Command("git", "branch", "--list", "--format=%(refname:short)").Output()
