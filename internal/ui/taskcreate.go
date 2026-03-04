@@ -455,12 +455,12 @@ func (m Model) handleTaskDeleted(msg taskDeletedMsg) (tea.Model, tea.Cmd) {
 		// Return to parent task detail and refresh subtasks.
 		if len(m.detailNavStack) > 0 {
 			n := len(m.detailNavStack)
-			parent := m.detailNavStack[n-1]
+			entry := m.detailNavStack[n-1]
 			m.detailNavStack = m.detailNavStack[:n-1]
 			m.subtasks = nil
 			m.subtaskCursor = 0
 			m.statusMessage = "✓  Deleted " + msg.taskID
-			return m.openDetailForTask(parent, viewDetail)
+			return m.openDetailForTask(entry.task, entry.returnState)
 		}
 		m.state = viewList
 		return m, nil

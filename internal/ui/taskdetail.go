@@ -245,11 +245,10 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "esc", "backspace":
 			if len(m.detailNavStack) > 0 {
-				// Pop the previous task off the stack and re-open it.
 				n := len(m.detailNavStack)
-				prev := m.detailNavStack[n-1]
+				entry := m.detailNavStack[n-1]
 				m.detailNavStack = m.detailNavStack[:n-1]
-				return m.openDetailForTask(prev, viewDetail)
+				return m.openDetailForTask(entry.task, entry.returnState)
 			}
 			m.statusMessage = ""
 			m.state = m.detailReturnState
@@ -349,7 +348,7 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 // openSubtaskDetail opens a subtask's detail view, pushing the current task
 // onto the navigation stack so esc can pop back to it at any depth.
 func (m Model) openSubtaskDetail(t tasks.Task) (tea.Model, tea.Cmd) {
-	m.detailNavStack = append(m.detailNavStack, *m.selectedTask)
+	m.detailNavStack = append(m.detailNavStack, detailNavEntry{*m.selectedTask, m.detailReturnState})
 	m.subtasks = nil
 	m.subtaskCursor = 0
 	return m.openDetailForTask(t, viewDetail)

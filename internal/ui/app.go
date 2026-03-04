@@ -135,6 +135,12 @@ type currentBranchMsg struct {
 	activeTask string // task ID extracted from branch name, may be empty
 }
 
+// detailNavEntry is one frame in the detail navigation back-stack.
+type detailNavEntry struct {
+	task        tasks.Task
+	returnState viewState // detailReturnState active when this task was showing
+}
+
 // detailFocusArea identifies which region of the detail view has keyboard focus.
 type detailFocusArea int
 
@@ -175,8 +181,8 @@ type Model struct {
 	searchModel       TaskSearchModel
 	searchLoading     bool      // true while search is in flight
 	searchReturnState viewState // view to return to when search is dismissed
-	detailReturnState viewState   // view to return to when the detail nav stack is empty
-	detailNavStack    []tasks.Task // tasks to pop back to on esc (LIFO); supports arbitrary depth
+	detailReturnState viewState        // view to return to when the detail nav stack is empty
+	detailNavStack    []detailNavEntry // LIFO back-stack; supports arbitrary navigation depth
 
 	commentsModel TaskCommentsModel
 	confirm       *confirmPrompt // non-nil while waiting for a yes/no answer
