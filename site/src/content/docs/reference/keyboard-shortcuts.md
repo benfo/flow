@@ -22,6 +22,16 @@ description: Complete reference of all keyboard shortcuts in flow.
 | `n` | Create new task |
 | `r` | Refresh task list |
 | `T` | Open theme picker |
+| `1` / `2` / `3` / `4` | Filter by status: Todo / In Progress / In Review / Done |
+| `0` | Clear status filter (show all) |
+| `Tab` | Cycle through status filters |
+| `S` | Cycle sort order (provider → priority → status → updated) |
+
+The active filter and sort are shown as chips in the footer bar, e.g. `[In Progress]  ↕ updated ↓`.
+
+:::tip[Tip]
+The task status displayed uses the **native label from your provider** (e.g. "In QA" from Jira) while the filter keys map to the canonical internal statuses (Todo, In Progress, In Review, Done).
+:::
 
 ## Task Detail
 

@@ -40,6 +40,10 @@ var helpSections = []helpSection{
 			{"n", "create new task"},
 			{"r", "refresh task list"},
 			{"T", "open theme picker"},
+			{"1 / 2 / 3 / 4", "filter by status: Todo / In Progress / In Review / Done"},
+			{"0", "clear status filter (show all)"},
+			{"tab", "cycle through status filters"},
+			{"S", "cycle sort order (provider / priority / status / updated)"},
 		},
 	},
 	{
