@@ -16,7 +16,8 @@ import (
 // taskItem wraps a Task to satisfy the list.Item interface.
 type taskItem struct {
 	task         tasks.Task
-	activeBranch string // set when this task's ID matches the checked-out branch
+	activeBranch string // set when this task's branch is currently checked out
+	localBranch  string // set when a local branch exists but is not checked out
 }
 
 // FilterValue is used by the Bubbles list's built-in fuzzy filter.
@@ -71,7 +72,17 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 
 	row2 := indent + statusBadge + "   " + priorityBadge
 	if t.activeBranch != "" {
-		branchLabel := lipgloss.NewStyle().Foreground(colorSubtle).Render("⎇  " + t.activeBranch)
+		// Active branch — bold primary colour with filled circle marker.
+		branchLabel := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colorPrimary).
+			Render("● " + t.activeBranch)
+		row2 += "   " + branchLabel
+	} else if t.localBranch != "" {
+		// Local branch exists but not checked out — subtle with branch glyph.
+		branchLabel := lipgloss.NewStyle().
+			Foreground(colorSubtle).
+			Render("⎇  " + t.localBranch)
 		row2 += "   " + branchLabel
 	}
 
@@ -81,10 +92,14 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 
 // ── List view orchestration ───────────────────────────────────────────────────
 
-// makeTaskItem builds a taskItem, populating activeBranch when the task ID
-// matches the currently checked-out branch.
+// makeTaskItem builds a taskItem, populating activeBranch or localBranch.
 func (m Model) makeTaskItem(t tasks.Task) taskItem {
-	return taskItem{task: t, activeBranch: m.branchForTask(t.ID)}
+	active := m.branchForTask(t.ID)
+	local := ""
+	if active == "" {
+		local = m.localBranches[t.ID]
+	}
+	return taskItem{task: t, activeBranch: active, localBranch: local}
 }
 
 // branchForTask returns activeBranch if it matches taskID, otherwise "".
@@ -93,6 +108,14 @@ func (m Model) branchForTask(taskID string) string {
 		return m.activeBranch
 	}
 	return ""
+}
+
+// localBranchForTask returns a local (non-active) branch for taskID, or "".
+func (m Model) localBranchForTask(taskID string) string {
+	if m.branchForTask(taskID) != "" {
+		return "" // already active; don't show as "not checked out"
+	}
+	return m.localBranches[taskID]
 }
 
 // handleTasksLoaded populates the list when the async fetch completes.

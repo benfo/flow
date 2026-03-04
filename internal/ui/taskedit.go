@@ -292,7 +292,7 @@ func (m Model) handleTaskSaved(msg taskSavedMsg) (tea.Model, tea.Cmd) {
 	m.list.SetItems(items)
 
 	// Refresh the detail view content with updated task.
-	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width, m.branchForTask(m.selectedTask.ID)))
+	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width, m.branchForTask(m.selectedTask.ID), m.localBranchForTask(m.selectedTask.ID)))
 
 	m.statusMessage = "✓  Saved"
 	m.state = viewDetail

@@ -52,7 +52,62 @@ func CheckoutBranch(name string) error {
 	return nil
 }
 
-// RemoteURL returns the fetch URL for the given remote (e.g. "origin").
+// AllLocalBranches returns the names of all local branches.
+func AllLocalBranches() ([]string, error) {
+	out, err := exec.Command("git", "branch", "--list", "--format=%(refname:short)").Output()
+	if err != nil {
+		return nil, err
+	}
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			branches = append(branches, line)
+		}
+	}
+	return branches, nil
+}
+
+// FindLocalBranch returns the name of the first local branch whose name
+// contains taskID (case-insensitive). Returns "" if none found.
+func FindLocalBranch(taskID string) string {
+	out, err := exec.Command("git", "branch", "--list", "--format=%(refname:short)").Output()
+	if err != nil {
+		return ""
+	}
+	upper := strings.ToUpper(taskID)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.Contains(strings.ToUpper(line), upper) {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
+}
+
+// BranchSummary holds the last-commit metadata for a branch.
+type BranchSummary struct {
+	Hash    string // short hash, e.g. "a1b2c3d"
+	Subject string // commit subject line
+	When    string // human-readable relative time, e.g. "2 hours ago"
+}
+
+// LastCommit returns the most recent commit summary on the given branch.
+// Returns an empty BranchSummary on error.
+func LastCommit(branch string) BranchSummary {
+	out, err := exec.Command(
+		"git", "log", branch, "-1",
+		"--format=%h\x1f%s\x1f%cr",
+	).Output()
+	if err != nil {
+		return BranchSummary{}
+	}
+	parts := strings.SplitN(strings.TrimSpace(string(out)), "\x1f", 3)
+	if len(parts) != 3 {
+		return BranchSummary{}
+	}
+	return BranchSummary{Hash: parts[0], Subject: parts[1], When: parts[2]}
+}
+
+
 func RemoteURL(remote string) (string, error) {
 	out, err := exec.Command("git", "remote", "get-url", remote).Output()
 	if err != nil {

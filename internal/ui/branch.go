@@ -29,6 +29,28 @@ func currentBranchCmd() tea.Cmd {
 	}
 }
 
+// localBranchesScannedMsg carries the result of scanning all local branches.
+type localBranchesScannedMsg struct {
+	branches map[string]string // taskID → branch name
+}
+
+// scanLocalBranchesCmd reads all local branches and maps each to its task ID (if any).
+func scanLocalBranchesCmd() tea.Cmd {
+	return func() tea.Msg {
+		out, err := igit.AllLocalBranches()
+		if err != nil || len(out) == 0 {
+			return localBranchesScannedMsg{branches: nil}
+		}
+		m := make(map[string]string, len(out))
+		for _, b := range out {
+			if id := extractTaskID(b); id != "" {
+				m[id] = b
+			}
+		}
+		return localBranchesScannedMsg{branches: m}
+	}
+}
+
 // loadTransitionsForAutoCmd fetches transitions with the intent of auto-applying In Progress.
 func loadTransitionsForAutoCmd(u tasks.StatusUpdater, taskID string) tea.Cmd {
 	return func() tea.Msg {
@@ -47,6 +69,26 @@ func (m Model) openBranchView() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// If this task's branch is already checked out, say so and stay in detail.
+	if m.branchForTask(m.selectedTask.ID) != "" {
+		m.statusMessage = "✓  Already on branch: " + m.activeBranch
+		return m, nil
+	}
+
+	// If a local branch for this task already exists (but isn't checked out),
+	// skip the creation form and go straight to the checkout prompt.
+	if found := igit.FindLocalBranch(m.selectedTask.ID); found != "" {
+		m.localBranch = found
+		m.confirmingCheckout = true
+
+		ti := textinput.New()
+		ti.SetValue(found)
+		m.branchInput = ti
+		m.state = viewBranch
+		m.statusMessage = ""
+		return m, nil
+	}
+
 	ti := textinput.New()
 	ti.SetValue(m.cfg.Branch.Apply(*m.selectedTask))
 	ti.CursorEnd()
@@ -57,6 +99,7 @@ func (m Model) openBranchView() (tea.Model, tea.Cmd) {
 	ti.PromptStyle = dimStyle
 
 	m.branchInput = ti
+	m.localBranch = ""
 	m.state = viewBranch
 	m.statusMessage = ""
 
@@ -74,15 +117,19 @@ func (m Model) updateBranchView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err := igit.CheckoutBranch(name); err != nil {
 					m.statusMessage = "✗  " + err.Error()
 					m.state = viewDetail
+					m.localBranch = ""
 					return m, nil
 				}
 				m.activeBranch = name
 				m.activeTaskID = extractTaskID(name)
+				m.localBranch = ""
 				m.statusMessage = "✓  Switched to branch: " + name
 				m.state = viewDetail
-				return m, nil
+				return m, scanLocalBranchesCmd()
 			case "n", "esc":
 				m.confirmingCheckout = false
+				m.localBranch = ""
+				m.state = viewDetail
 				return m, nil
 			}
 		}
@@ -156,13 +203,13 @@ func (m Model) confirmBranch() (tea.Model, tea.Cmd) {
 			m.selectedTask.Status != tasks.StatusInProgress {
 			m.pendingTransitionPrompt = true
 			m.statusMessage = ""
-			return m, nil
+			return m, scanLocalBranchesCmd()
 		}
 	}
 
 	m.statusMessage = "✓  Branch created: " + name
 	m.state = viewDetail
-	return m, nil
+	return m, scanLocalBranchesCmd()
 }
 
 func (m Model) renderBranchView() string {
@@ -171,45 +218,59 @@ func (m Model) renderBranchView() string {
 	}
 
 	sep := renderSeparator(m.width)
-	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  new branch", m.width)
 
 	var footerText string
+	var header string
+	var content string
+
 	switch {
 	case m.confirmingCheckout:
-		footerText = renderBranchPrompt("Branch exists — switch to it?")
+		header = renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  switch branch", m.width)
+		footerText = renderBranchPrompt("Switch to this branch?")
+
+		summary := igit.LastCommit(m.localBranch)
+		branchLine := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Padding(1, 2).
+			Render("⎇  " + m.localBranch)
+		var commitLine string
+		if summary.Hash != "" {
+			commitLine = dimStyle.Padding(0, 2).Render(
+				summary.Hash + "  " + summary.Subject + "  (" + summary.When + ")",
+			)
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left, branchLine, commitLine)
+
 	case m.pendingTransitionPrompt:
+		header = renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  new branch", m.width)
 		footerText = renderBranchPrompt("Move " + m.selectedTask.ID + " to In Progress?")
+		content = lipgloss.NewStyle().Padding(1, 2).Foreground(colorText).
+			Render("Branch created: " + lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Render(m.branchInput.Value()))
+
 	default:
+		header = renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  new branch", m.width)
 		footerText = "enter  confirm   esc  cancel"
+
+		label := lipgloss.NewStyle().
+			Foreground(colorSubtle).
+			Padding(1, 2).
+			Render("Branch name:")
+
+		inputBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorPrimary).
+			Padding(0, 1).
+			Width(m.width - 6).
+			Render(m.branchInput.View())
+
+		hint := dimStyle.Padding(0, 2).Render("Edit the branch name above, then press enter to create and switch to the branch.")
+
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			label,
+			lipgloss.NewStyle().Padding(0, 2).Render(inputBox),
+			"",
+			lipgloss.NewStyle().Padding(0, 2).Render(hint),
+		)
 	}
+
 	footer := renderFooterBar(footerText, m.width)
-
-	label := lipgloss.NewStyle().
-		Foreground(colorSubtle).
-		Padding(1, 2).
-		Render("Branch name:")
-
-	inputBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
-		Padding(0, 1).
-		Width(m.width - 6).
-		Render(m.branchInput.View())
-
-	hint := dimStyle.Padding(0, 2).Render("Edit the branch name above, then press enter to create and switch to the branch.")
-
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		label,
-		lipgloss.NewStyle().Padding(0, 2).Render(inputBox),
-		"",
-		lipgloss.NewStyle().Padding(0, 2).Render(hint),
-	)
-
-	return lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		sep,
-		content,
-		sep,
-		footer,
-	)
+	return lipgloss.JoinVertical(lipgloss.Left, header, sep, content, sep, footer)
 }

@@ -13,7 +13,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
-
 // ── Browser helper ────────────────────────────────────────────────────────────
 
 // openURL returns a tea.Cmd that opens the given URL in the system's default
@@ -78,8 +77,9 @@ func openPRCmd(branch string) tea.Cmd {
 
 // renderTaskDetail builds the full string content for the detail viewport.
 // width is used to draw horizontal dividers that span the available terminal width.
-// activeBranch is shown in the metadata when non-empty.
-func renderTaskDetail(t tasks.Task, width int, activeBranch string) string {
+// activeBranch is the currently checked-out branch (bold + primary colour).
+// localBranch is a branch that exists locally but isn't checked out (subtle).
+func renderTaskDetail(t tasks.Task, width int, activeBranch, localBranch string) string {
 	var sb strings.Builder
 
 	divider := dividerStyle.Render(strings.Repeat("─", max(0, width-4)))
@@ -102,7 +102,14 @@ func renderTaskDetail(t tasks.Task, width int, activeBranch string) string {
 	}
 
 	if activeBranch != "" {
-		branchVal := lipgloss.NewStyle().Foreground(colorSubtle).Render("⎇  " + activeBranch)
+		branchVal := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Render("● " + activeBranch)
+		summary := igit.LastCommit(activeBranch)
+		if summary.Hash != "" {
+			branchVal += dimStyle.Render("   " + summary.Hash + " · " + summary.Subject + " (" + summary.When + ")")
+		}
+		writeField(&sb, "Branch", branchVal)
+	} else if localBranch != "" {
+		branchVal := lipgloss.NewStyle().Foreground(colorSubtle).Render("⎇  " + localBranch + "  (not checked out)")
 		writeField(&sb, "Branch", branchVal)
 	}
 
@@ -166,7 +173,7 @@ func (m Model) openDetailForTask(t tasks.Task, returnTo viewState) (tea.Model, t
 
 	contentHeight := m.height - verticalOverhead
 	m.detail = viewport.New(m.width, contentHeight)
-	m.detail.SetContent(renderTaskDetail(t, m.width, m.branchForTask(t.ID)))
+	m.detail.SetContent(renderTaskDetail(t, m.width, m.branchForTask(t.ID), m.localBranchForTask(t.ID)))
 
 	var cmd tea.Cmd
 	if fetcher, ok := m.provider.(tasks.SubtaskFetcher); ok {
@@ -223,7 +230,7 @@ func (m Model) handleSelfAssigned(msg selfAssignedMsg) (tea.Model, tea.Cmd) {
 		items[i] = m.makeTaskItem(t)
 	}
 	m.list.SetItems(items)
-	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width, m.branchForTask(m.selectedTask.ID)))
+	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width, m.branchForTask(m.selectedTask.ID), m.localBranchForTask(m.selectedTask.ID)))
 
 	m.statusMessage = "✓  Assigned to you"
 	return m, nil
@@ -436,9 +443,19 @@ func (m Model) renderDetailView() string {
 	if _, canCreate := m.provider.(tasks.Creator); canCreate {
 		hints = append(hints, "n  subtask")
 	}
-	hints = append(hints, "y  copy", "b  branch")
-	if m.selectedTask != nil && m.branchForTask(m.selectedTask.ID) != "" {
-		hints = append(hints, "P  open PR")
+	hints = append(hints, "y  copy")
+	if m.selectedTask != nil {
+		active := m.branchForTask(m.selectedTask.ID)
+		local := m.localBranchForTask(m.selectedTask.ID)
+		switch {
+		case active != "":
+			// Already on branch — omit b hint, show P instead.
+			hints = append(hints, "P  open PR")
+		case local != "":
+			hints = append(hints, "b  switch branch")
+		default:
+			hints = append(hints, "b  new branch")
+		}
 	}
 	hints = append(hints, "?  help")
 

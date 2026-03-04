@@ -169,8 +169,10 @@ type Model struct {
 
 	activeBranch            string // currently checked-out git branch name
 	activeTaskID            string // task ID extracted from activeBranch
+	localBranches           map[string]string // taskID → local branch name (not active)
 	confirmingCheckout      bool   // true when offering to checkout an existing branch
 	pendingTransitionPrompt bool   // true when offering to transition after branch create
+	localBranch             string // local branch found for selected task (not yet checked out)
 
 	statusMessage string // transient feedback shown in the footer
 	loadErr       string // shown in viewError
@@ -212,7 +214,7 @@ func New(provider tasks.Provider, cfg config.Config) (Model, error) {
 
 // Init kicks off the async task load and starts the spinner animation.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider), currentBranchCmd())
+	return tea.Batch(m.spinner.Tick, loadTasksCmd(m.provider), currentBranchCmd(), scanLocalBranchesCmd())
 }
 
 // loadTasksCmd returns a Cmd that fetches tasks in the background.
@@ -311,6 +313,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if branch, ok := msg.(currentBranchMsg); ok {
 		m.activeBranch = branch.branch
 		m.activeTaskID = branch.activeTask
+		return m, nil
+	}
+
+	// Handle local branch scan result.
+	if scanned, ok := msg.(localBranchesScannedMsg); ok {
+		m.localBranches = scanned.branches
+		// Rebuild list items so branch badges reflect the new data.
+		if len(m.tasks) > 0 {
+			items := make([]list.Item, len(m.tasks))
+			for i, t := range m.tasks {
+				items[i] = m.makeTaskItem(t)
+			}
+			m.list.SetItems(items)
+		}
 		return m, nil
 	}
 
