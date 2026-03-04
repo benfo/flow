@@ -57,7 +57,7 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	}
 
 	idStr := dimStyle.Render(t.task.ID)
-	statusBadge := renderStatusBadge(t.task.Status)
+	statusBadge := renderStatusBadge(t.task.Status, t.task.ProviderStatus)
 	priorityBadge := renderPriorityBadge(t.task.Priority)
 
 	// selector(2) + space(1) + ID + space(2) = fixed prefix; badges indent to match.

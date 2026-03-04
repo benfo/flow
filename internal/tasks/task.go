@@ -57,17 +57,18 @@ func (p Priority) String() string {
 // Task is the canonical representation of a unit of work, normalised from
 // any upstream provider (Jira, Linear, GitHub Issues, etc.).
 type Task struct {
-	ID          string
-	Title       string
-	Description string
-	Status      Status
-	Priority    Priority
-	URL         string
-	Assignee    string
-	Labels      []string
-	Project     string
-	ParentID    string // empty if top-level task
-	HasChildren bool   // hint: true if this task has subtasks (avoids N+1 on list)
+	ID             string
+	Title          string
+	Description    string
+	Status         Status
+	ProviderStatus string // raw status label from the provider (e.g. "In QA", "Waiting for Review")
+	Priority       Priority
+	URL            string
+	Assignee       string
+	Labels         []string
+	Project        string
+	ParentID       string // empty if top-level task
+	HasChildren    bool   // hint: true if this task has subtasks (avoids N+1 on list)
 }
 
 // CreateInput is the provider-agnostic description of a new task or subtask.

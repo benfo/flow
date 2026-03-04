@@ -768,6 +768,7 @@ type issueRef struct {
 }
 
 type issueStatus struct {
+	Name           string         `json:"name"`
 	StatusCategory statusCategory `json:"statusCategory"`
 }
 
@@ -840,7 +841,8 @@ func mapIssue(iss issue, baseURL string) tasks.Task {
 		ID:          iss.Key,
 		Title:       f.Summary,
 		Description: extractText(f.Description),
-		Status:      mapStatus(f.Status.StatusCategory.Key),
+		Status:         mapStatus(f.Status.StatusCategory.Key),
+		ProviderStatus: f.Status.Name,
 		Priority:    mapPriority(f.Priority),
 		URL:         strings.TrimRight(baseURL, "/") + "/browse/" + iss.Key,
 		Assignee:    assignee,

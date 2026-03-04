@@ -203,9 +203,13 @@ func fitHints(hints []string, sep string, maxWidth int) string {
 }
 
 
-func renderStatusBadge(s tasks.Status) string {
-	color := statusColor(s)
-	return lipgloss.NewStyle().Foreground(color).Bold(true).Render(s.String())
+// renderStatusBadge returns a coloured status label. label is the text to
+// display; if empty the canonical status string is used as a fallback.
+func renderStatusBadge(s tasks.Status, label string) string {
+	if label == "" {
+		label = s.String()
+	}
+	return lipgloss.NewStyle().Foreground(statusColor(s)).Bold(true).Render(label)
 }
 
 // renderPriorityBadge returns a coloured priority label string with a visual indicator.

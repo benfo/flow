@@ -156,7 +156,11 @@ func (m Model) handleTaskTransitioned(msg taskTransitionedMsg) (tea.Model, tea.C
 	m.list.SetItems(items)
 	m.detail.SetContent(renderTaskDetail(*m.selectedTask, m.width, m.branchForTask(m.selectedTask.ID), m.localBranchForTask(m.selectedTask.ID)))
 
-	m.statusMessage = "✓  Status changed to: " + msg.task.Status.String()
+	statusLabel := msg.task.ProviderStatus
+	if statusLabel == "" {
+		statusLabel = msg.task.Status.String()
+	}
+	m.statusMessage = "✓  Status changed to: " + statusLabel
 	m.state = viewDetail
 	return m, clearStatusCmd()
 }

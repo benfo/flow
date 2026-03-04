@@ -92,7 +92,7 @@ func renderTaskDetail(t tasks.Task, width int, activeBranch, localBranch string)
 
 	// Metadata fields
 	writeField(&sb, "ID", t.ID)
-	writeField(&sb, "Status", renderStatusBadge(t.Status))
+	writeField(&sb, "Status", renderStatusBadge(t.Status, t.ProviderStatus))
 	writeField(&sb, "Priority", renderPriorityBadge(t.Priority))
 	writeField(&sb, "Project", t.Project)
 	writeField(&sb, "Assignee", t.Assignee)
@@ -498,7 +498,11 @@ func (m Model) renderSubtaskSection() string {
 		}
 		id := lipgloss.NewStyle().Foreground(colorPrimary).Render(t.ID)
 		title := style.Render(t.Title)
-		status := lipgloss.NewStyle().Foreground(statusColor(t.Status)).Render(t.Status.String())
+		statusLabel := t.ProviderStatus
+		if statusLabel == "" {
+			statusLabel = t.Status.String()
+		}
+		status := lipgloss.NewStyle().Foreground(statusColor(t.Status)).Render(statusLabel)
 		row := cursor + id + "  " + title + "  " + dimStyle.Render(status)
 		rows = append(rows, lipgloss.NewStyle().Padding(0, 1).Render(row))
 	}

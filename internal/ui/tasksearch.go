@@ -147,7 +147,11 @@ func (m TaskSearchModel) View() string {
 
 		id := idStyle.Render(t.ID)
 		title := rowStyle.Render(t.Title)
-		status := lipgloss.NewStyle().Foreground(statusColor(t.Status)).Render("● " + t.Status.String())
+		statusLabel := t.ProviderStatus
+		if statusLabel == "" {
+			statusLabel = t.Status.String()
+		}
+		status := lipgloss.NewStyle().Foreground(statusColor(t.Status)).Render("● " + statusLabel)
 		assignee := dimStyle.Render(t.Assignee)
 
 		row := cursorStr + id + "  " + title + "  " + status + "  " + assignee
