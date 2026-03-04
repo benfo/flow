@@ -168,7 +168,7 @@ func (m Model) openDetailForTask(t tasks.Task, returnTo viewState) (tea.Model, t
 	m.subtasks = nil
 	m.subtaskCursor = 0
 	m.detailFocus = detailFocusViewport
-	m.confirmingDelete = false
+	m.confirm = nil
 	m.statusMessage = "" // clear any transient message (e.g. "Loading parent…")
 
 	contentHeight := m.height - verticalOverhead
@@ -239,23 +239,6 @@ func (m Model) handleSelfAssigned(msg selfAssignedMsg) (tea.Model, tea.Cmd) {
 // ── Detail view ───────────────────────────────────────────────────────────────
 
 func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle delete confirmation overlay first.
-	if m.confirmingDelete {
-		if key, ok := msg.(tea.KeyMsg); ok {
-			switch key.String() {
-			case "y", "enter":
-				m.confirmingDelete = false
-				if del, ok := m.provider.(tasks.TaskDeleter); ok && m.selectedTask != nil {
-					t := *m.selectedTask
-					return m, deleteTaskCmd(del, t)
-				}
-			case "n", "esc":
-				m.confirmingDelete = false
-			}
-		}
-		return m, nil
-	}
-
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "q", "ctrl+c":
@@ -309,8 +292,18 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.openParentDetail()
 			}
 		case "D":
-			if _, canDelete := m.provider.(tasks.TaskDeleter); canDelete && m.selectedTask != nil {
-				m.confirmingDelete = true
+			if del, ok := m.provider.(tasks.TaskDeleter); ok && m.selectedTask != nil {
+				t := *m.selectedTask
+				m.confirm = &confirmPrompt{
+					question:    "Delete " + t.ID + "?",
+					destructive: true,
+					onConfirm: func(m Model) (tea.Model, tea.Cmd) {
+						return m, deleteTaskCmd(del, t)
+					},
+					onCancel: func(m Model) (tea.Model, tea.Cmd) {
+						return m, nil
+					},
+				}
 				m.statusMessage = ""
 				return m, nil
 			}
@@ -460,8 +453,8 @@ func (m Model) renderDetailView() string {
 	hints = append(hints, "?  help")
 
 	var footerText string
-	if m.confirmingDelete && m.selectedTask != nil {
-		footerText = renderDeleteConfirm(m.selectedTask.ID)
+	if m.confirm != nil {
+		footerText = renderConfirmFooter(m.confirm.question, m.confirm.destructive)
 	} else if m.statusMessage != "" {
 		footerText = m.statusMessage
 	} else {

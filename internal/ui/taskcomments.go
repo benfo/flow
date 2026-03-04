@@ -16,7 +16,6 @@ type commentMode int
 const (
 	commentModeList    commentMode = iota // browsing the comment list
 	commentModeCompose                    // composing a new or edited comment
-	commentModeDelete                     // confirming a delete
 )
 
 // TaskCommentsModel is the sub-model for viewComments.
@@ -27,11 +26,10 @@ type TaskCommentsModel struct {
 	mode     commentMode
 
 	// compose fields
-	input      textarea.Model
-	editingID  string // empty = new comment, non-empty = editing existing
-	saving     bool
-	confirming bool   // true when confirming discard of compose changes
-	errMsg     string
+	input     textarea.Model
+	editingID string // empty = new comment, non-empty = editing existing
+	saving    bool
+	errMsg    string
 	spinner    spinner.Model
 
 	width  int
@@ -76,7 +74,6 @@ func (m TaskCommentsModel) openCompose(existing tasks.Comment) TaskCommentsModel
 	m.mode = commentModeCompose
 	m.editingID = existing.ID
 	m.errMsg = ""
-	m.confirming = false
 	m.saving = false
 	m.input.SetValue(existing.Body)
 	m.input.Focus()
@@ -219,8 +216,6 @@ func (m TaskCommentsModel) renderCompose() string {
 
 	var statusLine string
 	switch {
-	case m.confirming:
-		statusLine = renderDiscardConfirm()
 	case m.saving:
 		statusLine = lipgloss.NewStyle().Foreground(colorPrimary).Padding(0, 2).
 			Render(m.spinner.View() + "  Saving…")
@@ -321,27 +316,19 @@ func (m Model) updateCommentsView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+c":
 				return m, tea.Quit
 			case "esc":
-				if m.commentsModel.HasComposeChanges() && !m.commentsModel.confirming {
-					m.commentsModel.confirming = true
-					return m, nil
-				}
-				if m.commentsModel.confirming {
-					m.commentsModel.confirming = false
+				if m.commentsModel.HasComposeChanges() {
+					m.confirm = &confirmPrompt{
+						question: "Discard changes?",
+						onConfirm: func(m Model) (tea.Model, tea.Cmd) {
+							m.commentsModel.mode = commentModeList
+							return m, nil
+						},
+						onCancel: func(m Model) (tea.Model, tea.Cmd) { return m, nil },
+					}
 					return m, nil
 				}
 				m.commentsModel.mode = commentModeList
 				return m, nil
-			case "y":
-				if m.commentsModel.confirming {
-					m.commentsModel.confirming = false
-					m.commentsModel.mode = commentModeList
-					return m, nil
-				}
-			case "n":
-				if m.commentsModel.confirming {
-					m.commentsModel.confirming = false
-					return m, nil
-				}
 			case "ctrl+s":
 				if m.commentsModel.saving {
 					return m, nil
@@ -372,24 +359,6 @@ func (m Model) updateCommentsView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Delete confirmation mode — must be checked before list-mode keys so that
-	// esc cancels the confirmation instead of navigating away.
-	if m.commentsModel.mode == commentModeDelete {
-		if key, ok := msg.(tea.KeyMsg); ok {
-			switch key.String() {
-			case "y", "enter":
-				if c, ok := m.commentsModel.SelectedComment(); ok {
-					deleter := m.provider.(tasks.CommentDeleter)
-					m.commentsModel.mode = commentModeList
-					return m, deleteCommentCmd(deleter, m.commentsModel.taskID, c.ID)
-				}
-			case "n", "esc":
-				m.commentsModel.mode = commentModeList
-			}
-			return m, nil
-		}
-	}
-
 	// List mode.
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
@@ -417,8 +386,18 @@ func (m Model) updateCommentsView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "D":
-			if _, ok := m.commentsModel.SelectedComment(); ok {
-				m.commentsModel.mode = commentModeDelete
+			if c, ok := m.commentsModel.SelectedComment(); ok {
+				deleter := m.provider.(tasks.CommentDeleter)
+				taskID := m.commentsModel.taskID
+				commentID := c.ID
+				m.confirm = &confirmPrompt{
+					question:    "Delete this comment?",
+					destructive: true,
+					onConfirm: func(m Model) (tea.Model, tea.Cmd) {
+						return m, deleteCommentCmd(deleter, taskID, commentID)
+					},
+					onCancel: func(m Model) (tea.Model, tea.Cmd) { return m, nil },
+				}
 			}
 			return m, nil
 		}
@@ -504,41 +483,29 @@ func (m Model) renderCommentsView() string {
 	header := renderHeaderBar("⚡ flow  /  "+title, m.width)
 
 	var footer string
-	switch m.commentsModel.mode {
-	case commentModeCompose:
-		if m.commentsModel.confirming {
-			footer = renderFooterBar("Discard changes?   y  yes   n / esc  keep editing", m.width)
-		} else {
+	if m.confirm != nil {
+		footer = renderFooterBar(renderConfirmFooter(m.confirm.question, m.confirm.destructive), m.width)
+	} else {
+		switch m.commentsModel.mode {
+		case commentModeCompose:
 			footer = renderFooterBar("ctrl+s  save   esc  cancel", m.width)
+		default:
+			commentHints := []string{"esc  back"}
+			if _, ok := m.provider.(tasks.CommentAdder); ok {
+				commentHints = append(commentHints, "n  new")
+			}
+			if _, ok := m.provider.(tasks.CommentEditor); ok {
+				commentHints = append(commentHints, "e  edit")
+			}
+			if _, ok := m.provider.(tasks.CommentDeleter); ok {
+				commentHints = append(commentHints, "D  delete")
+			}
+			commentHints = append(commentHints, "?  help")
+			footer = renderFooterBar(fitHints(commentHints, "   ", m.width-2), m.width)
 		}
-	case commentModeDelete:
-		footer = renderFooterBar("Delete this comment?   y  yes   n / esc  cancel", m.width)
-	default:
-		commentHints := []string{"esc  back"}
-		if _, ok := m.provider.(tasks.CommentAdder); ok {
-			commentHints = append(commentHints, "n  new")
-		}
-		if _, ok := m.provider.(tasks.CommentEditor); ok {
-			commentHints = append(commentHints, "e  edit")
-		}
-		if _, ok := m.provider.(tasks.CommentDeleter); ok {
-			commentHints = append(commentHints, "D  delete")
-		}
-		commentHints = append(commentHints, "?  help")
-		footer = renderFooterBar(fitHints(commentHints, "   ", m.width-2), m.width)
 	}
 
 	content := m.commentsModel.View()
-
-	// Delete confirmation overlay.
-	if m.commentsModel.mode == commentModeDelete {
-		if c, ok := m.commentsModel.SelectedComment(); ok {
-			prompt := lipgloss.NewStyle().
-				Foreground(colorPriorityCritical).Bold(true).Padding(1, 2).
-				Render("Delete comment by " + c.Author + "?   y  yes   n / esc  cancel")
-			content = prompt + "\n" + content
-		}
-	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, sep, content, sep, footer)
 }

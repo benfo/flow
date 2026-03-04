@@ -82,15 +82,9 @@ func (m Model) openBranchView() (tea.Model, tea.Cmd) {
 	}
 
 	// If a local branch for this task already exists (but isn't checked out),
-	// skip the creation form and go straight to the checkout prompt.
+	// offer to check it out via the confirm prompt without entering viewBranch.
 	if found := igit.FindLocalBranch(m.selectedTask.ID); found != "" {
-		m.localBranch = found
-		m.confirmingCheckout = true
-
-		ti := textinput.New()
-		ti.SetValue(found)
-		m.branchInput = ti
-		m.state = viewBranch
+		m.confirm = m.makeCheckoutConfirmPrompt(found)
 		m.statusMessage = ""
 		return m, nil
 	}
@@ -105,7 +99,6 @@ func (m Model) openBranchView() (tea.Model, tea.Cmd) {
 	ti.PromptStyle = dimStyle
 
 	m.branchInput = ti
-	m.localBranch = ""
 	m.state = viewBranch
 	m.statusMessage = ""
 
@@ -126,94 +119,43 @@ func (m Model) openBranchViewFromList() (tea.Model, tea.Cmd) {
 	return m.openBranchView()
 }
 
+// makeCheckoutConfirmPrompt builds the confirmPrompt chain for checking out
+// an existing local branch, handling the dirty-worktree stash sub-prompt.
+func (m Model) makeCheckoutConfirmPrompt(name string) *confirmPrompt {
+	return &confirmPrompt{
+		question: "Switch to existing branch: " + name + "?",
+		onConfirm: func(m Model) (tea.Model, tea.Cmd) {
+			if igit.IsDirty() {
+				m.confirm = &confirmPrompt{
+					question: "Uncommitted changes — stash and switch?",
+					onConfirm: func(m Model) (tea.Model, tea.Cmd) {
+						if err := igit.StashAndCheckout(name); err != nil {
+							m.statusMessage = "✗  " + err.Error()
+							return m, clearStatusCmd()
+						}
+						m.activeBranch = name
+						m.activeTaskID = extractTaskID(name)
+						m.statusMessage = "✓  Stashed, switched to: " + name
+						return m, tea.Batch(scanLocalBranchesCmd(), clearStatusCmd())
+					},
+					onCancel: func(m Model) (tea.Model, tea.Cmd) { return m, nil },
+				}
+				return m, nil
+			}
+			if err := igit.CheckoutBranch(name); err != nil {
+				m.statusMessage = "✗  " + err.Error()
+				return m, clearStatusCmd()
+			}
+			m.activeBranch = name
+			m.activeTaskID = extractTaskID(name)
+			m.statusMessage = "✓  Switched to branch: " + name
+			return m, tea.Batch(scanLocalBranchesCmd(), clearStatusCmd())
+		},
+		onCancel: func(m Model) (tea.Model, tea.Cmd) { return m, nil },
+	}
+}
+
 func (m Model) updateBranchView(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle "stash and checkout?" prompt (dirty working directory).
-	if m.confirmingStash {
-		if key, ok := msg.(tea.KeyMsg); ok {
-			switch key.String() {
-			case "y", "enter":
-				m.confirmingStash = false
-				name := strings.TrimSpace(m.branchInput.Value())
-				if err := igit.StashAndCheckout(name); err != nil {
-					m.statusMessage = "✗  " + err.Error()
-					m.state = viewDetail
-					m.localBranch = ""
-					return m, clearStatusCmd()
-				}
-				m.activeBranch = name
-				m.activeTaskID = extractTaskID(name)
-				m.localBranch = ""
-				m.statusMessage = "✓  Stashed, switched to: " + name
-				m.state = m.detailReturnState
-				return m, tea.Batch(scanLocalBranchesCmd(), clearStatusCmd())
-			case "n", "esc":
-				m.confirmingStash = false
-				m.state = m.detailReturnState
-				m.localBranch = ""
-				return m, nil
-			}
-		}
-		return m, nil
-	}
-
-	// Handle "checkout existing branch?" prompt.
-	if m.confirmingCheckout {
-		if key, ok := msg.(tea.KeyMsg); ok {
-			switch key.String() {
-			case "y", "enter":
-				m.confirmingCheckout = false
-				name := strings.TrimSpace(m.branchInput.Value())
-				// If the working directory is dirty, pivot to the stash prompt.
-				if igit.IsDirty() {
-					m.confirmingStash = true
-					return m, nil
-				}
-				if err := igit.CheckoutBranch(name); err != nil {
-					m.statusMessage = "✗  " + err.Error()
-					m.state = m.detailReturnState
-					m.localBranch = ""
-					return m, clearStatusCmd()
-				}
-				m.activeBranch = name
-				m.activeTaskID = extractTaskID(name)
-				m.localBranch = ""
-				m.statusMessage = "✓  Switched to branch: " + name
-				m.state = m.detailReturnState
-				return m, tea.Batch(scanLocalBranchesCmd(), clearStatusCmd())
-			case "n", "esc":
-				m.confirmingCheckout = false
-				m.localBranch = ""
-				m.state = m.detailReturnState
-				return m, nil
-			}
-		}
-		return m, nil
-	}
-
-	// Handle "move to In Progress?" prompt.
-	if m.pendingTransitionPrompt {
-		if key, ok := msg.(tea.KeyMsg); ok {
-			switch key.String() {
-			case "y", "enter":
-				m.pendingTransitionPrompt = false
-				name := strings.TrimSpace(m.branchInput.Value())
-				m.statusMessage = "✓  Branch created: " + name
-				m.state = m.detailReturnState
-				if su, ok := m.provider.(tasks.StatusUpdater); ok && m.selectedTask != nil {
-					return m, tea.Batch(loadTransitionsForAutoCmd(su, m.selectedTask.ID), clearStatusCmd())
-				}
-				return m, clearStatusCmd()
-			case "n", "esc":
-				m.pendingTransitionPrompt = false
-				name := strings.TrimSpace(m.branchInput.Value())
-				m.statusMessage = "✓  Branch created: " + name
-				m.state = m.detailReturnState
-				return m, clearStatusCmd()
-			}
-		}
-		return m, nil
-	}
-
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
 		case "ctrl+c":
@@ -241,7 +183,8 @@ func (m Model) confirmBranch() (tea.Model, tea.Cmd) {
 
 	if err := igit.CreateBranch(name); err != nil {
 		if strings.Contains(err.Error(), "already exists") {
-			m.confirmingCheckout = true
+			m.confirm = m.makeCheckoutConfirmPrompt(name)
+			m.state = m.detailReturnState
 			m.statusMessage = ""
 			return m, nil
 		}
@@ -253,10 +196,21 @@ func (m Model) confirmBranch() (tea.Model, tea.Cmd) {
 	m.activeTaskID = extractTaskID(name)
 
 	if m.selectedTask != nil {
-		if _, canTransition := m.provider.(tasks.StatusUpdater); canTransition &&
+		if su, canTransition := m.provider.(tasks.StatusUpdater); canTransition &&
 			m.selectedTask.Status != tasks.StatusInProgress {
-			m.pendingTransitionPrompt = true
-			m.statusMessage = ""
+			taskID := m.selectedTask.ID
+			m.confirm = &confirmPrompt{
+				question: "Move " + taskID + " to In Progress?",
+				onConfirm: func(m Model) (tea.Model, tea.Cmd) {
+					m.statusMessage = "✓  Branch created: " + name
+					return m, tea.Batch(loadTransitionsForAutoCmd(su, taskID), clearStatusCmd())
+				},
+				onCancel: func(m Model) (tea.Model, tea.Cmd) {
+					m.statusMessage = "✓  Branch created: " + name
+					return m, clearStatusCmd()
+				},
+			}
+			m.state = m.detailReturnState
 			return m, scanLocalBranchesCmd()
 		}
 	}
@@ -272,69 +226,35 @@ func (m Model) renderBranchView() string {
 	}
 
 	sep := renderSeparator(m.width)
+	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  new branch", m.width)
 
 	var footerText string
-	var header string
-	var content string
-
-	switch {
-	case m.confirmingStash:
-		header = renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  switch branch", m.width)
-		footerText = renderBranchPrompt("Uncommitted changes — stash and switch?")
-		branchLine := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Padding(1, 2).
-			Render("⎇  " + m.branchInput.Value())
-		warn := lipgloss.NewStyle().Foreground(colorPriorityHigh).Padding(0, 2).
-			Render("⚠  Your working directory has uncommitted changes.")
-		hint := dimStyle.Padding(0, 2).
-			Render("y / enter — git stash, switch branch, git stash pop   n / esc — cancel")
-		content = lipgloss.JoinVertical(lipgloss.Left, branchLine, "", warn, hint)
-
-	case m.confirmingCheckout:
-		header = renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  switch branch", m.width)
-		footerText = renderBranchPrompt("Switch to this branch?")
-
-		summary := igit.LastCommit(m.localBranch)
-		branchLine := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Padding(1, 2).
-			Render("⎇  " + m.localBranch)
-		var commitLine string
-		if summary.Hash != "" {
-			commitLine = dimStyle.Padding(0, 2).Render(
-				summary.Hash + "  " + summary.Subject + "  (" + summary.When + ")",
-			)
-		}
-		content = lipgloss.JoinVertical(lipgloss.Left, branchLine, commitLine)
-
-	case m.pendingTransitionPrompt:
-		header = renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  new branch", m.width)
-		footerText = renderBranchPrompt("Move " + m.selectedTask.ID + " to In Progress?")
-		content = lipgloss.NewStyle().Padding(1, 2).Foreground(colorText).
-			Render("Branch created: " + lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Render(m.branchInput.Value()))
-
-	default:
-		header = renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  new branch", m.width)
+	if m.confirm != nil {
+		footerText = renderConfirmFooter(m.confirm.question, m.confirm.destructive)
+	} else {
 		footerText = "enter  confirm   esc  cancel"
-
-		label := lipgloss.NewStyle().
-			Foreground(colorSubtle).
-			Padding(1, 2).
-			Render("Branch name:")
-
-		inputBox := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorPrimary).
-			Padding(0, 1).
-			Width(m.width - 6).
-			Render(m.branchInput.View())
-
-		hint := dimStyle.Padding(0, 2).Render("Edit the branch name above, then press enter to create and switch to the branch.")
-
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			label,
-			lipgloss.NewStyle().Padding(0, 2).Render(inputBox),
-			"",
-			lipgloss.NewStyle().Padding(0, 2).Render(hint),
-		)
 	}
+
+	label := lipgloss.NewStyle().
+		Foreground(colorSubtle).
+		Padding(1, 2).
+		Render("Branch name:")
+
+	inputBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorPrimary).
+		Padding(0, 1).
+		Width(m.width - 6).
+		Render(m.branchInput.View())
+
+	hint := dimStyle.Padding(0, 2).Render("Edit the branch name above, then press enter to create and switch to the branch.")
+
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		label,
+		lipgloss.NewStyle().Padding(0, 2).Render(inputBox),
+		"",
+		lipgloss.NewStyle().Padding(0, 2).Render(hint),
+	)
 
 	footer := renderFooterBar(footerText, m.width)
 	return lipgloss.JoinVertical(lipgloss.Left, header, sep, content, sep, footer)

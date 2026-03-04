@@ -31,7 +31,6 @@ type TaskEditModel struct {
 	spinner    spinner.Model
 
 	originalTask tasks.Task
-	confirming   bool // true when asking user to confirm discard
 	width        int
 	height       int
 }
@@ -180,8 +179,6 @@ func (m TaskEditModel) View() string {
 
 	var statusLine string
 	switch {
-	case m.confirming:
-		statusLine = renderDiscardConfirm()
 	case m.saving:
 		statusLine = lipgloss.NewStyle().Foreground(colorPrimary).Padding(0, 2).
 			Render(m.spinner.View() + "  Saving…")
@@ -221,23 +218,19 @@ func (m Model) openEditView() (tea.Model, tea.Cmd) {
 
 func (m Model) updateEditView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
-		// Handle discard confirmation mode first.
-		if m.editModel.confirming {
-			switch key.String() {
-			case "y", "enter":
-				m.editModel.confirming = false
-				m.state = viewDetail
-			case "n", "esc":
-				m.editModel.confirming = false
-			}
-			return m, nil
-		}
 		switch key.String() {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "esc":
 			if m.editModel.HasChanges() {
-				m.editModel.confirming = true
+				m.confirm = &confirmPrompt{
+					question: "Discard changes?",
+					onConfirm: func(m Model) (tea.Model, tea.Cmd) {
+						m.state = viewDetail
+						return m, nil
+					},
+					onCancel: func(m Model) (tea.Model, tea.Cmd) { return m, nil },
+				}
 				return m, nil
 			}
 			m.state = viewDetail
@@ -305,10 +298,13 @@ func (m Model) renderEditView() string {
 	}
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar("⚡ flow  /  "+m.selectedTask.ID+"  /  edit", m.width)
-	footer := renderFooterBar("ctrl+s  save   esc  discard", m.width)
-	if m.editModel.confirming {
-		footer = renderFooterBar("Discard changes?   y  yes   n / esc  keep editing", m.width)
+	var footerText string
+	if m.confirm != nil {
+		footerText = renderConfirmFooter(m.confirm.question, m.confirm.destructive)
+	} else {
+		footerText = "ctrl+s  save   esc  discard"
 	}
+	footer := renderFooterBar(footerText, m.width)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,

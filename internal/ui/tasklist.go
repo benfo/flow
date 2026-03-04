@@ -195,7 +195,9 @@ func (m Model) renderListView() string {
 	hints = append(hints, "?  help")
 
 	var footerContent string
-	if m.statusMessage != "" {
+	if m.confirm != nil {
+		footerContent = renderConfirmFooter(m.confirm.question, m.confirm.destructive)
+	} else if m.statusMessage != "" {
 		footerContent = m.statusMessage
 	} else {
 		footerContent = fitHints(hints, "   ", m.width-2)

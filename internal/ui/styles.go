@@ -158,39 +158,18 @@ func renderFormField(label, content string, focused bool) string {
 	)
 }
 
-// renderDiscardConfirm renders the inline "discard changes?" confirmation bar
-// shown when the user presses esc on a dirty form.
-func renderDiscardConfirm() string {
-	label := lipgloss.NewStyle().Foreground(colorPriorityCritical).Bold(true).Render("Discard changes?")
+// renderConfirmFooter renders a consistent confirmation prompt in the footer bar.
+// For destructive actions pass destructive=true to render the question in red.
+func renderConfirmFooter(question string, destructive bool) string {
+	qColor := colorPrimary
+	if destructive {
+		qColor = colorPriorityCritical
+	}
+	label := lipgloss.NewStyle().Foreground(qColor).Bold(true).Render(question)
 	yes := lipgloss.NewStyle().Foreground(colorStatusDone).Bold(true).Render("y")
-	no := lipgloss.NewStyle().Foreground(colorSubtle).Render("n")
-	hint := lipgloss.NewStyle().Foreground(colorSubtle).Render(" yes  /  ")
-	hintNo := lipgloss.NewStyle().Foreground(colorSubtle).Render(" keep editing")
-	return lipgloss.NewStyle().Padding(0, 2).Render(
-		label + "   " + yes + hint + no + hintNo,
-	)
-}
-
-// renderDeleteConfirm renders the inline "delete task?" confirmation bar
-// shown when the user presses D on the detail view.
-func renderDeleteConfirm(taskID string) string {
-	label := lipgloss.NewStyle().Foreground(colorPriorityCritical).Bold(true).Render("Delete " + taskID + "?")
-	yes := lipgloss.NewStyle().Foreground(colorPriorityCritical).Bold(true).Render("y")
 	no := lipgloss.NewStyle().Foreground(colorSubtle).Render("n")
 	hint := lipgloss.NewStyle().Foreground(colorSubtle).Render(" yes  /  ")
 	hintNo := lipgloss.NewStyle().Foreground(colorSubtle).Render(" cancel")
-	return lipgloss.NewStyle().Padding(0, 2).Render(
-		label + "   " + yes + hint + no + hintNo,
-	)
-}
-
-// renderBranchPrompt renders an inline "question? y / n" bar used in the branch view.
-func renderBranchPrompt(question string) string {
-	label := lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render(question)
-	yes := lipgloss.NewStyle().Foreground(colorStatusDone).Bold(true).Render("y")
-	no := lipgloss.NewStyle().Foreground(colorSubtle).Render("n")
-	hint := lipgloss.NewStyle().Foreground(colorSubtle).Render(" yes  /  ")
-	hintNo := lipgloss.NewStyle().Foreground(colorSubtle).Render(" no")
 	return lipgloss.NewStyle().Padding(0, 2).Render(
 		label + "   " + yes + hint + no + hintNo,
 	)

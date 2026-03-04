@@ -43,7 +43,6 @@ type TaskCreateModel struct {
 	parentTask   *tasks.Task // non-nil when creating a subtask
 	showAssign   bool        // true when provider supports SelfAssigner
 	assignToSelf bool        // whether to assign task to current user on create
-	confirming   bool        // true when asking user to confirm discard
 	width        int
 	height       int
 }
@@ -255,8 +254,6 @@ func (m TaskCreateModel) View() string {
 	}
 
 	switch {
-	case m.confirming:
-		parts = append(parts, renderDiscardConfirm())
 	case m.saving:
 		parts = append(parts,
 			lipgloss.NewStyle().Foreground(colorPrimary).Padding(0, 2).
@@ -352,27 +349,24 @@ func (m Model) openCreateView(parent *tasks.Task) (tea.Model, tea.Cmd) {
 
 func (m Model) updateCreateView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
-		// Handle discard confirmation mode first.
-		if m.createModel.confirming {
-			switch key.String() {
-			case "y", "enter":
-				m.createModel.confirming = false
-				if m.createModel.parentTask != nil {
-					m.state = viewDetail
-				} else {
-					m.state = viewList
-				}
-			case "n", "esc":
-				m.createModel.confirming = false
-			}
-			return m, nil
-		}
 		switch key.String() {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "esc":
 			if m.createModel.HasChanges() {
-				m.createModel.confirming = true
+				returnState := m.detailReturnState
+				if m.createModel.parentTask == nil {
+					returnState = viewList
+				}
+				m.confirm = &confirmPrompt{
+					question: "Discard changes?",
+					onConfirm: func(m Model) (tea.Model, tea.Cmd) {
+						m.state = returnState
+						m.statusMessage = ""
+						return m, nil
+					},
+					onCancel: func(m Model) (tea.Model, tea.Cmd) { return m, nil },
+				}
 				return m, nil
 			}
 			if m.createModel.parentTask != nil {
@@ -530,10 +524,13 @@ func (m Model) renderCreateView() string {
 
 	sep := renderSeparator(m.width)
 	header := renderHeaderBar(breadcrumb, m.width)
-	footer := renderFooterBar(fitHints([]string{"ctrl+s  save", "esc  discard"}, "   ", m.width-2), m.width)
-	if m.createModel.confirming {
-		footer = renderFooterBar("Discard changes?   y  yes   n / esc  keep editing", m.width)
+	var footerText string
+	if m.confirm != nil {
+		footerText = renderConfirmFooter(m.confirm.question, m.confirm.destructive)
+	} else {
+		footerText = fitHints([]string{"ctrl+s  save", "esc  discard"}, "   ", m.width-2)
 	}
+	footer := renderFooterBar(footerText, m.width)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,

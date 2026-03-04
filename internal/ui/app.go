@@ -143,6 +143,15 @@ const (
 	detailFocusSubtasks  detailFocusArea = iota
 )
 
+// confirmPrompt holds a pending yes/no confirmation.
+// Set m.confirm to show a prompt; cleared automatically when answered.
+type confirmPrompt struct {
+	question    string
+	destructive bool // true = render question in red/warning colour
+	onConfirm   func(Model) (tea.Model, tea.Cmd)
+	onCancel    func(Model) (tea.Model, tea.Cmd)
+}
+
 // ── Root model ────────────────────────────────────────────────────────────────
 
 // Model is the root Bubble Tea model for the flow dashboard.
@@ -170,8 +179,8 @@ type Model struct {
 	detailReturnTask        *tasks.Task // parent task to restore when returning to viewDetail
 	detailParentReturnState viewState   // detailReturnState of the parent task
 
-	commentsModel    TaskCommentsModel
-	confirmingDelete bool // true while waiting for delete confirmation in detail view
+	commentsModel TaskCommentsModel
+	confirm       *confirmPrompt // non-nil while waiting for a yes/no answer
 
 	showHelp     bool           // true when the help overlay is visible
 	helpViewport viewport.Model // scrollable content for the help overlay
@@ -179,13 +188,9 @@ type Model struct {
 	themePickerCursor int    // selected row in the theme picker
 	themePreviousName string // theme name before picker opened (for esc revert)
 
-	activeBranch            string // currently checked-out git branch name
-	activeTaskID            string // task ID extracted from activeBranch
-	localBranches           map[string]string // taskID → local branch name (not active)
-	confirmingCheckout      bool   // true when offering to checkout an existing branch
-	confirmingStash         bool   // true when offering to stash + checkout (dirty worktree)
-	pendingTransitionPrompt bool   // true when offering to transition after branch create
-	localBranch             string // local branch found for selected task (not yet checked out)
+	activeBranch  string            // currently checked-out git branch name
+	activeTaskID  string            // task ID extracted from activeBranch
+	localBranches map[string]string // taskID → local branch name (not active)
 
 	statusMessage string // transient feedback shown in the footer
 	loadErr       string // shown in viewError
@@ -323,6 +328,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle active confirmation prompt before routing to any view.
+	if m.confirm != nil {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "y", "enter":
+				fn := m.confirm.onConfirm
+				m.confirm = nil
+				return fn(m)
+			case "n", "esc":
+				fn := m.confirm.onCancel
+				m.confirm = nil
+				return fn(m)
+			}
+			return m, nil // swallow all other keys while confirming
+		}
+	}
+
 	// Handle async parent task fetch result.
 	if parent, ok := msg.(parentTaskLoadedMsg); ok {
 		return m.handleParentLoaded(parent)
@@ -378,7 +400,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case viewList, viewDetail, viewStatus:
 			return m.openHelpView()
 		case viewComments:
-			if m.commentsModel.mode == commentModeList || m.commentsModel.mode == commentModeDelete {
+			if m.commentsModel.mode == commentModeList {
 				return m.openHelpView()
 			}
 		}
