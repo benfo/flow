@@ -1,0 +1,647 @@
+---
+const base = import.meta.env.BASE_URL;
+const docsUrl = `${base}getting-started/introduction/`;
+const githubUrl = 'https://github.com/benfo/flow';
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>flow — Terminal task dashboard for developers</title>
+  <meta name="description" content="A keyboard-driven terminal TUI that brings your issue tracker into your terminal. Linear support today, more coming." />
+  <link rel="icon" href={`${base}favicon.svg`} />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #080c14;
+      --surface:   #0d1424;
+      --surface2:  #111d30;
+      --border:    #1b2a42;
+      --border2:   #243448;
+      --text:      #cdd9f0;
+      --text-dim:  #4d6380;
+      --text-mid:  #7a94b8;
+      --accent:    #5b7fff;
+      --accent-glow: rgba(91,127,255,0.18);
+      --green:     #3ecf6e;
+      --blue:      #5b9fff;
+      --purple:    #9b7fff;
+      --amber:     #f4b942;
+      --red:       #f05f6e;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', ui-monospace, monospace;
+      --font-sans: system-ui, -apple-system, sans-serif;
+      --radius:    10px;
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    /* ── Nav ──────────────────────────────────── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+      height: 56px;
+      background: rgba(8,12,20,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .nav-logo span { color: var(--accent); }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    .nav-links a {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      color: var(--text-mid);
+      transition: color 0.15s, background 0.15s;
+    }
+    .nav-links a:hover { color: var(--text); background: var(--surface); }
+    .nav-links .btn-ghost {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .nav-links .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      font-weight: 500;
+    }
+    .nav-links .btn-primary:hover { background: #7494ff; color: #fff; }
+
+    /* ── Hero ─────────────────────────────────── */
+    .hero {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      gap: 3rem;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 6rem 2rem 5rem;
+    }
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; padding: 4rem 1.5rem 3rem; }
+      .hero-terminal { display: none; }
+    }
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--accent);
+      background: rgba(91,127,255,0.1);
+      border: 1px solid rgba(91,127,255,0.25);
+      border-radius: 999px;
+      padding: 4px 12px;
+      margin-bottom: 1.5rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .hero-eyebrow::before { content: '●'; font-size: 0.5rem; }
+    h1 {
+      font-size: clamp(2.4rem, 5vw, 3.4rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      margin-bottom: 1.25rem;
+      color: #f0f6ff;
+    }
+    h1 em {
+      font-style: normal;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-sub {
+      font-size: 1.1rem;
+      color: var(--text-mid);
+      max-width: 480px;
+      margin-bottom: 2.25rem;
+      line-height: 1.7;
+    }
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-accent {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 0 24px rgba(91,127,255,0.35);
+    }
+    .btn-accent:hover {
+      background: #7494ff;
+      box-shadow: 0 0 32px rgba(91,127,255,0.5);
+      transform: translateY(-1px);
+    }
+    .btn-outline {
+      border: 1px solid var(--border2);
+      color: var(--text-mid);
+      background: transparent;
+    }
+    .btn-outline:hover {
+      border-color: var(--text-mid);
+      color: var(--text);
+      background: var(--surface);
+    }
+    .hero-install {
+      margin-top: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+    .hero-install code {
+      color: var(--text-mid);
+    }
+    .hero-install code span { color: var(--green); }
+
+    /* ── Terminal mockup ──────────────────────── */
+    .hero-terminal {
+      position: relative;
+    }
+    .hero-terminal::before {
+      content: '';
+      position: absolute;
+      inset: -30px;
+      background: radial-gradient(ellipse at 60% 40%, rgba(91,127,255,0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .terminal-window {
+      background: #0b1120;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.04),
+        0 32px 64px rgba(0,0,0,0.6),
+        0 0 80px rgba(91,127,255,0.08);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      line-height: 1.55;
+    }
+    .terminal-chrome {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: #0d1728;
+      border-bottom: 1px solid var(--border);
+    }
+    .dot { width: 11px; height: 11px; border-radius: 50%; }
+    .dot-r { background: #f05050; }
+    .dot-y { background: #f4b942; }
+    .dot-g { background: #3ecf6e; }
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 0.72rem;
+    }
+    .terminal-body { padding: 0; }
+
+    .t-header {
+      display: flex;
+      justify-content: space-between;
+      padding: 7px 12px 5px;
+      background: #0c1622;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-dim);
+      font-size: 0.73rem;
+    }
+    .t-header-left { display: flex; gap: 12px; align-items: center; }
+    .t-title-logo { color: var(--accent); font-weight: 700; }
+    .t-provider { color: var(--text-dim); }
+    .t-branch { color: var(--green); }
+
+    .t-rows { padding: 4px 0; }
+    .t-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 12px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .t-row.selected {
+      background: rgba(91,127,255,0.12);
+    }
+    .t-selector { color: var(--text-dim); width: 12px; flex-shrink: 0; }
+    .t-row.selected .t-selector { color: var(--accent); }
+    .t-task-name { flex: 1; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+    .t-row.selected .t-task-name { color: #fff; }
+    .t-row.done .t-task-name { color: var(--text-dim); text-decoration: line-through; }
+
+    .badge {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      flex-shrink: 0;
+    }
+    .badge-inprogress { background: rgba(91,127,255,0.2); color: var(--blue); }
+    .badge-todo       { background: rgba(100,100,120,0.2); color: var(--text-dim); }
+    .badge-done       { background: rgba(62,207,110,0.15); color: var(--green); }
+    .badge-backlog    { background: rgba(100,100,120,0.12); color: var(--text-dim); }
+
+    .t-branch-badge {
+      font-size: 0.68rem;
+      color: var(--purple);
+      flex-shrink: 0;
+    }
+
+    .t-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 4px 0;
+    }
+    .t-footer {
+      padding: 6px 12px;
+      border-top: 1px solid var(--border);
+      background: #0c1622;
+      color: var(--text-dim);
+      font-size: 0.68rem;
+      display: flex;
+      gap: 16px;
+    }
+    .t-footer-key { color: var(--text-mid); }
+    .cursor {
+      display: inline-block;
+      width: 7px;
+      height: 13px;
+      background: var(--accent);
+      vertical-align: text-bottom;
+      animation: blink 1.1s step-end infinite;
+    }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+    /* ── Features ─────────────────────────────── */
+    .section { max-width: 1200px; margin: 0 auto; padding: 5rem 2rem; }
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--accent);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
+    }
+    .section-title {
+      font-size: clamp(1.6rem, 3vw, 2.2rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      color: #f0f6ff;
+      margin-bottom: 0.75rem;
+    }
+    .section-sub {
+      font-size: 1rem;
+      color: var(--text-mid);
+      max-width: 560px;
+      margin-bottom: 3rem;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1.25rem;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .feature-card:hover {
+      border-color: var(--border2);
+      box-shadow: 0 0 32px rgba(91,127,255,0.06);
+    }
+    .feature-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+    }
+    .icon-blue   { background: rgba(91,127,255,0.15); }
+    .icon-green  { background: rgba(62,207,110,0.12); }
+    .icon-purple { background: rgba(155,127,255,0.15); }
+    .icon-amber  { background: rgba(244,185,66,0.12); }
+    .feature-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: #e8f0ff;
+      margin-bottom: 0.5rem;
+    }
+    .feature-desc {
+      font-size: 0.875rem;
+      color: var(--text-mid);
+      line-height: 1.6;
+    }
+
+    /* ── Divider ──────────────────────────────── */
+    .section-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    /* ── Install ──────────────────────────────── */
+    .install-section {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .install-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 5rem 2rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4rem;
+      align-items: center;
+    }
+    @media (max-width: 768px) {
+      .install-inner { grid-template-columns: 1fr; gap: 2rem; }
+    }
+    .code-block {
+      background: #070b12;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      overflow: hidden;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+    }
+    .code-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: #0c1320;
+    }
+    .code-tab {
+      padding: 8px 16px;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s;
+    }
+    .code-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .code-content { padding: 16px 18px; }
+    .code-line { display: flex; gap: 10px; margin-bottom: 4px; }
+    .code-prompt { color: var(--text-dim); user-select: none; }
+    .code-cmd { color: var(--text); }
+    .code-cmd .hl-green { color: var(--green); }
+    .code-cmd .hl-blue  { color: var(--blue); }
+    .code-cmd .hl-dim   { color: var(--text-dim); }
+
+    /* ── Footer ───────────────────────────────── */
+    footer {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2.5rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text-dim);
+      font-size: 0.825rem;
+    }
+    @media (max-width: 600px) {
+      footer { flex-direction: column; gap: 1rem; text-align: center; }
+    }
+    .footer-logo {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--text-mid);
+    }
+    .footer-logo span { color: var(--accent); }
+    footer a { color: var(--text-dim); }
+    footer a:hover { color: var(--text-mid); }
+  </style>
+</head>
+
+<body>
+
+  <!-- ── Nav ─────────────────────────────────── -->
+  <nav>
+    <a class="nav-logo" href={base}>
+      <span>flow</span>
+    </a>
+    <div class="nav-links">
+      <a href={docsUrl}>Docs</a>
+      <a href={`${base}reference/keyboard-shortcuts/`}>Shortcuts</a>
+      <a class="btn-ghost" href={githubUrl} target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.373 0 12c0 5.303 3.438 9.8 8.205 11.387.6.113.82-.258.82-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.929.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+        GitHub
+      </a>
+      <a class="btn btn-primary" href={docsUrl}>Get started →</a>
+    </div>
+  </nav>
+
+  <!-- ── Hero ────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero-text">
+      <div class="hero-eyebrow">Open source · Free · v0.1.0-beta.4</div>
+      <h1>Your issue tracker.<br /><em>In your terminal.</em></h1>
+      <p class="hero-sub">
+        A keyboard-driven TUI that brings tasks, comments, and branches together
+        — without leaving your editor context.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-accent" href={docsUrl}>Get started →</a>
+        <a class="btn btn-outline" href={githubUrl} target="_blank" rel="noopener">View on GitHub</a>
+      </div>
+      <div class="hero-install">
+        <code><span>$</span> curl -sSL …/install.sh | bash</code>
+      </div>
+    </div>
+
+    <div class="hero-terminal">
+      <div class="terminal-window">
+        <div class="terminal-chrome">
+          <div class="dot dot-r"></div>
+          <div class="dot dot-y"></div>
+          <div class="dot dot-g"></div>
+          <div class="terminal-title">flow — zsh — 90×30</div>
+        </div>
+        <div class="terminal-body">
+          <div class="t-header">
+            <div class="t-header-left">
+              <span class="t-title-logo">⬡ flow</span>
+              <span class="t-provider">Linear · My Issues</span>
+            </div>
+            <span class="t-branch">⎇ main</span>
+          </div>
+          <div class="t-rows">
+            <div class="t-row selected">
+              <span class="t-selector">▶</span>
+              <span class="t-task-name">Fix login redirect bug<span class="cursor"></span></span>
+              <span class="badge badge-inprogress">in progress</span>
+              <span class="t-branch-badge">⎇ fix/auth</span>
+            </div>
+            <div class="t-row">
+              <span class="t-selector">·</span>
+              <span class="t-task-name">Add dark mode to dashboard</span>
+              <span class="badge badge-todo">todo</span>
+            </div>
+            <div class="t-row">
+              <span class="t-selector">·</span>
+              <span class="t-task-name">Improve onboarding copy</span>
+              <span class="badge badge-inprogress">in progress</span>
+              <span class="t-branch-badge">⎇ feat/onboarding</span>
+            </div>
+            <div class="t-row">
+              <span class="t-selector">·</span>
+              <span class="t-task-name">Write API documentation</span>
+              <span class="badge badge-backlog">backlog</span>
+            </div>
+            <div class="t-row done">
+              <span class="t-selector">·</span>
+              <span class="t-task-name">Refactor payment module</span>
+              <span class="badge badge-done">done</span>
+            </div>
+            <div class="t-row">
+              <span class="t-selector">·</span>
+              <span class="t-task-name">Performance audit</span>
+              <span class="badge badge-todo">todo</span>
+              <span class="t-branch-badge">⎇ perf/audit</span>
+            </div>
+          </div>
+          <div class="t-footer">
+            <span><span class="t-footer-key">enter</span> open</span>
+            <span><span class="t-footer-key">b</span> branch</span>
+            <span><span class="t-footer-key">s</span> status</span>
+            <span><span class="t-footer-key">n</span> new</span>
+            <span><span class="t-footer-key">?</span> help</span>
+            <span><span class="t-footer-key">q</span> quit</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <!-- ── Features ────────────────────────────── -->
+  <section class="section">
+    <div class="section-label">Why flow</div>
+    <h2 class="section-title">Everything you need, nothing you don't</h2>
+    <p class="section-sub">Built for developers who live in the terminal and want task management that doesn't break their flow.</p>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon icon-blue">⌨</div>
+        <div class="feature-title">Keyboard first</div>
+        <p class="feature-desc">Every action is a keypress away. No mouse required — navigate, create, edit, and close tasks without reaching for a trackpad.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon icon-green">⎇</div>
+        <div class="feature-title">Git integrated</div>
+        <p class="feature-desc">See which tasks have active branches, check out or create branches, stash dirty state, and open pull requests — all from the task view.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon icon-purple">⚡</div>
+        <div class="feature-title">Instant access</div>
+        <p class="feature-desc">Launch <code style="font-family:monospace;font-size:0.85em;color:var(--purple)">flow</code> from any terminal. Your tasks load instantly so you can triage, update status, and get back to coding.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon icon-amber">◎</div>
+        <div class="feature-title">Provider agnostic</div>
+        <p class="feature-desc">Linear is supported today. GitHub Issues and Jira are on the roadmap. One interface regardless of where your team tracks work.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Install ──────────────────────────────── -->
+  <div class="install-section">
+    <div class="install-inner">
+      <div>
+        <div class="section-label">Get started in 30 seconds</div>
+        <h2 class="section-title">One command to install</h2>
+        <p class="section-sub">Download the binary for your platform and start managing tasks from your terminal immediately.</p>
+        <a class="btn btn-accent" href={docsUrl}>Read the docs →</a>
+      </div>
+      <div class="code-block">
+        <div class="code-tabs">
+          <div class="code-tab active">macOS / Linux</div>
+          <div class="code-tab" style="color:var(--text-dim)">Windows</div>
+        </div>
+        <div class="code-content">
+          <div class="code-line">
+            <span class="code-prompt">$</span>
+            <span class="code-cmd">
+              <span class="hl-green">curl</span>
+              <span class="hl-dim"> -sSL </span>
+              <span class="hl-blue">https://raw.githubusercontent.com/benfo/flow/main/install.sh</span>
+              <span class="hl-dim"> | bash</span>
+            </span>
+          </div>
+          <div class="code-line" style="margin-top:0.75rem">
+            <span class="code-prompt">$</span>
+            <span class="code-cmd">
+              <span class="hl-green">flow</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Footer ───────────────────────────────── -->
+  <footer>
+    <div class="footer-logo"><span>flow</span></div>
+    <div>
+      MIT License ·
+      <a href={githubUrl} target="_blank" rel="noopener">GitHub</a> ·
+      <a href={docsUrl}>Docs</a>
+    </div>
+  </footer>
+
+</body>
+</html>
