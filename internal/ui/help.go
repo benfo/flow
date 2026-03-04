@@ -185,11 +185,12 @@ func (m Model) buildHelpContent(width int) string {
 	if m.updateAvailable != "" {
 		sb.WriteString("\n")
 		updateLine := lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Padding(0, 2).
-			Render(fmt.Sprintf("⬆  %s is available — upgrade with:", m.updateAvailable))
+			Render(fmt.Sprintf("⬆  %s is available — run the install script to upgrade:", m.updateAvailable))
 		sb.WriteString(updateLine)
 		sb.WriteString("\n")
 		scriptLines := []string{
-			"  go install github.com/benfo/flow@latest",
+			"  macOS / Linux   curl -sSL https://raw.githubusercontent.com/benfo/flow/main/install.sh | bash",
+			"  Windows         irm https://raw.githubusercontent.com/benfo/flow/main/install.ps1 | iex",
 		}
 		for _, l := range scriptLines {
 			sb.WriteString(dimStyle.Padding(0, 2).Render(l))
