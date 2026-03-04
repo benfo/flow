@@ -500,7 +500,7 @@ const githubUrl = 'https://github.com/benfo/flow';
         <a class="btn btn-outline" href={githubUrl} target="_blank" rel="noopener">View on GitHub</a>
       </div>
       <div class="hero-install">
-        <code><span>$</span> curl -sSL …/install.sh | bash</code>
+        <code id="hero-install-cmd"><span>$</span> curl -sSL …/install.sh | bash</code>
       </div>
     </div>
 
@@ -651,6 +651,13 @@ const githubUrl = 'https://github.com/benfo/flow';
           var activePanel  = isWin ? 'panel-win'  : 'panel-unix';
           var inactiveTab  = isWin ? 'tab-unix'   : 'tab-win';
           var inactivePanel = isWin ? 'panel-unix' : 'panel-win';
+
+          var heroCmd = document.getElementById('hero-install-cmd');
+          if (heroCmd) {
+            heroCmd.innerHTML = isWin
+              ? '<span>PS&gt;</span> irm …/install.ps1 | iex'
+              : '<span>$</span> curl -sSL …/install.sh | bash';
+          }
 
           document.getElementById(activeTab).classList.add('active');
           document.getElementById(inactiveTab).classList.remove('active');
