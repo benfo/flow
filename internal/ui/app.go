@@ -175,9 +175,8 @@ type Model struct {
 	searchModel       TaskSearchModel
 	searchLoading     bool      // true while search is in flight
 	searchReturnState viewState // view to return to when search is dismissed
-	detailReturnState       viewState   // view to return to when detail is dismissed
-	detailReturnTask        *tasks.Task // parent task to restore when returning to viewDetail
-	detailParentReturnState viewState   // detailReturnState of the parent task
+	detailReturnState viewState   // view to return to when the detail nav stack is empty
+	detailNavStack    []tasks.Task // tasks to pop back to on esc (LIFO); supports arbitrary depth
 
 	commentsModel TaskCommentsModel
 	confirm       *confirmPrompt // non-nil while waiting for a yes/no answer

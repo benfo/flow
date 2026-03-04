@@ -179,6 +179,7 @@ func (m Model) openDetail() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	m.detailNavStack = nil // fresh navigation — clear any prior stack
 	return m.openDetailForTask(item.task, viewList)
 }
 

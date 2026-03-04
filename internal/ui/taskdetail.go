@@ -169,7 +169,7 @@ func (m Model) openDetailForTask(t tasks.Task, returnTo viewState) (tea.Model, t
 	m.subtaskCursor = 0
 	m.detailFocus = detailFocusViewport
 	m.confirm = nil
-	m.statusMessage = "" // clear any transient message (e.g. "Loading parent…")
+	m.statusMessage = ""
 
 	contentHeight := m.height - verticalOverhead
 	m.detail = viewport.New(m.width, contentHeight)
@@ -244,12 +244,12 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "esc", "backspace":
-			if m.detailReturnState == viewDetail && m.detailReturnTask != nil {
-				// Returning from a subtask — fully re-open the parent detail view.
-				parent := *m.detailReturnTask
-				parentReturnState := m.detailParentReturnState
-				m.detailReturnTask = nil
-				return m.openDetailForTask(parent, parentReturnState)
+			if len(m.detailNavStack) > 0 {
+				// Pop the previous task off the stack and re-open it.
+				n := len(m.detailNavStack)
+				prev := m.detailNavStack[n-1]
+				m.detailNavStack = m.detailNavStack[:n-1]
+				return m.openDetailForTask(prev, viewDetail)
 			}
 			m.statusMessage = ""
 			m.state = m.detailReturnState
@@ -346,10 +346,10 @@ func (m Model) updateDetailView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// openSubtaskDetail opens a subtask's detail view (same view, different task).
+// openSubtaskDetail opens a subtask's detail view, pushing the current task
+// onto the navigation stack so esc can pop back to it at any depth.
 func (m Model) openSubtaskDetail(t tasks.Task) (tea.Model, tea.Cmd) {
-	m.detailReturnTask = m.selectedTask        // remember parent to restore on esc
-	m.detailParentReturnState = m.detailReturnState // remember parent's own return state
+	m.detailNavStack = append(m.detailNavStack, *m.selectedTask)
 	m.subtasks = nil
 	m.subtaskCursor = 0
 	return m.openDetailForTask(t, viewDetail)
