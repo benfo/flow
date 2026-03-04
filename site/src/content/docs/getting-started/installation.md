@@ -5,7 +5,7 @@ description: How to install flow on macOS, Linux, and Windows.
 
 ## Prerequisites
 
-- A supported issue tracker account (currently [Linear](https://linear.app))
+- A supported issue tracker account (currently [Jira](https://www.atlassian.com/software/jira))
 - Git installed and available in your `PATH`
 
 ## Install script (macOS / Linux)
@@ -34,4 +34,8 @@ flow --version
 
 ## First run
 
-Run `flow` in any directory. On the first launch you will be prompted to authenticate with your issue tracker.
+Run `flow` in any directory. On the first launch a welcome screen guides you through connecting your issue tracker. You can also authenticate manually at any time:
+
+```bash
+flow auth jira
+```

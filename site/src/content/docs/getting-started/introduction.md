@@ -11,7 +11,7 @@ description: What is flow and why you might want it.
 - **Status changes** — move tasks through your workflow with a keyboard-driven picker
 - **Comments** — read and write comments without opening a browser
 - **Git integration** — see the active branch for a task, check out branches, and open pull requests directly from the task detail view
-- **Multiple providers** — Linear supported today, more coming
+- **Multiple providers** — Jira supported today, more coming
 - **Keyboard-first** — everything is reachable without a mouse
 
 ## Philosophy

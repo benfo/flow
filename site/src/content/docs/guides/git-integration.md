@@ -5,6 +5,17 @@ description: How flow integrates with Git to link tasks to branches and pull req
 
 flow connects your tasks to your local Git repository automatically.
 
+## Header bar context
+
+When you are inside a Git repository, the header bar shows the current branch and dirty state on the right side:
+
+```
+⚡ flow                          Jira · PROJ   ⎇  main ✎
+```
+
+- **`⎇  main`** — the currently checked-out branch
+- **`✎`** — the working tree has uncommitted changes
+
 ## Branch indicators
 
 In the task list, flow shows a badge next to any task that has a matching local branch:

@@ -9,11 +9,17 @@ description: Supported issue tracker providers and how to configure them.
 
 ### Authentication
 
-Run `flow` for the first time and follow the authentication prompt. flow uses the Jira OAuth flow and stores the token locally.
+The easiest way is to run `flow` — on first launch the welcome screen walks you through setup inline. You can also run the auth wizard at any time:
+
+```bash
+flow auth jira
+```
+
+You will be asked for your Jira domain, email address, and an [API token](https://id.atlassian.com/manage-api-tokens). Credentials are stored in your OS keychain; no plain-text secrets are written to disk.
 
 ### Configuration
 
-flow reads your Jira workspace automatically once authenticated. No additional configuration is required to get started.
+After authenticating you can optionally filter which projects appear in the dashboard. The setup wizard prompts for project keys (e.g. `PROJ, TEAM`) and lets you save the filter globally or per repository.
 
 ## Planned providers
 
