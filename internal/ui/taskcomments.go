@@ -372,6 +372,24 @@ func (m Model) updateCommentsView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// Delete confirmation mode — must be checked before list-mode keys so that
+	// esc cancels the confirmation instead of navigating away.
+	if m.commentsModel.mode == commentModeDelete {
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "y", "enter":
+				if c, ok := m.commentsModel.SelectedComment(); ok {
+					deleter := m.provider.(tasks.CommentDeleter)
+					m.commentsModel.mode = commentModeList
+					return m, deleteCommentCmd(deleter, m.commentsModel.taskID, c.ID)
+				}
+			case "n", "esc":
+				m.commentsModel.mode = commentModeList
+			}
+			return m, nil
+		}
+	}
+
 	// List mode.
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
@@ -401,23 +419,6 @@ func (m Model) updateCommentsView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "D":
 			if _, ok := m.commentsModel.SelectedComment(); ok {
 				m.commentsModel.mode = commentModeDelete
-			}
-			return m, nil
-		}
-	}
-
-	// Delete confirmation mode.
-	if m.commentsModel.mode == commentModeDelete {
-		if key, ok := msg.(tea.KeyMsg); ok {
-			switch key.String() {
-			case "y", "enter":
-				if c, ok := m.commentsModel.SelectedComment(); ok {
-					deleter := m.provider.(tasks.CommentDeleter)
-					m.commentsModel.mode = commentModeList
-					return m, deleteCommentCmd(deleter, m.commentsModel.taskID, c.ID)
-				}
-			case "n", "esc":
-				m.commentsModel.mode = commentModeList
 			}
 			return m, nil
 		}
